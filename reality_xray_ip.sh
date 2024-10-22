@@ -200,10 +200,12 @@ removeXray() {
 
 # 创建配置文件 config.json
 config_nodes() {
-
+     DEFAULT_NODE_NAME="catmi"
     read -p "起始端口 (默认 $DEFAULT_START_PORT): " START_PORT
 	START_PORT=${START_PORT:-$DEFAULT_START_PORT}
-     read -p "节点名: " Node_names 	
+    
+     read -p "节点名 (默认 $DEFAULT_NODE_NAME): " NODE_NAME
+       NODE_NAME=${NODE_NAME:-$DEFAULT_NODE_NAME}
     # 开始生成 JSON 配置
     cat > /usr/local/etc/xray/config.json <<EOF
 {
@@ -220,7 +222,7 @@ EOF
 		USER_UUID[$i]=`cat /usr/local/etc/xray/uuid`
 
 		# 生成节点名称
-		USER_NAME[$i]="$Node_names-Reality-xary_$i"	
+		USER_NAME[$i]="$NODE_NAME-Reality-xary_$i"	
 
 		# 生成私钥和公钥
 		/usr/local/bin/xray x25519 > /usr/local/etc/xray/key
