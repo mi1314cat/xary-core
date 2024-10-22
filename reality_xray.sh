@@ -121,32 +121,42 @@ preinstall() {
 
 # 定义函数，返回随机选择的域名
 random_website() {
-    domains=(
+   domains=(
         "one-piece.com"
-        "www.lovelive-anime.jp"
-        "www.swift.com"
+        "lovelive-anime.jp"
+        "swift.com"
         "academy.nvidia.com"
-        "www.cisco.com"
-        "www.samsung.com"
-        "www.amd.com"
-        "www.apple.com"
+        "cisco.com"
+        "samsung.com"
+        "amd.com"
+        "apple.com"
         "music.apple.com"
-        "www.amazon.com"		
-        "www.fandom.com"
+        "amazon.com"
+        "fandom.com"
         "tidal.com"
         "zoro.to"
-        "www.pixiv.co.jp"
+        "pixiv.co.jp"
         "mxj.myanimelist.net"
         "mora.jp"
-        "www.j-wave.co.jp"
-        "www.dmm.com"
+        "j-wave.co.jp"
+        "dmm.com"
         "booth.pm"
-        "www.ivi.tv"
-        "www.leercapitulo.com"
-        "www.sky.com"
+        "ivi.tv"
+        "leercapitulo.com"
+        "sky.com"
         "itunes.apple.com"
-        "download-installer.cdn.mozilla.net"	
+        "download-installer.cdn.mozilla.net"
+        "images-na.ssl-images-amazon.com"
+        "swdist.apple.com"
+        "swcdn.apple.com"
+        "updates.cdn-apple.com"
+        "mensura.cdn-apple.com"
+        "osxapps.itunes.apple.com"
+        "aod.itunes.apple.com"
+	"www.google-analytics.com"
+        "dl.google.com"
     )
+
 
     total_domains=${#domains[@]}
     random_index=$((RANDOM % total_domains))
