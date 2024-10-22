@@ -203,7 +203,7 @@ config_nodes() {
 
     read -p "起始端口 (默认 $DEFAULT_START_PORT): " START_PORT
 	START_PORT=${START_PORT:-$DEFAULT_START_PORT}
-	
+   read -p "节点名: "Node_names 	
     # 开始生成 JSON 配置
     cat > /usr/local/etc/xray/config.json <<EOF
 {
@@ -220,7 +220,7 @@ EOF
 		USER_UUID[$i]=`cat /usr/local/etc/xray/uuid`
 
 		# 生成节点名称
-		USER_NAME[$i]="Reality-xary_$i"	
+		USER_NAME[$i]="$Node_names-Reality-xary_$i"	
 
 		# 生成私钥和公钥
 		/usr/local/bin/xray x25519 > /usr/local/etc/xray/key
