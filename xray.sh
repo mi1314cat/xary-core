@@ -22,11 +22,9 @@ generate_random_ws_path() {
 # 下载并安装最新的 Xray
 install_xray() {
     echo "安装最新 Xray..."
-    apt-get install unzip -y || yum install unzip -y
-    LATEST_XRAY=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep browser_download_url | grep linux-64.zip | cut -d '"' -f 4)
-    wget $LATEST_XRAY -O Xray-linux-64.zip || { echo "下载失败！"; exit 1; }
-    unzip Xray-linux-64.zip
-    mv xray /usr/local/bin/xrayL
+   
+    bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+    mv /usr/local/bin/xray  /usr/local/bin/xrayL
     chmod +x /usr/local/bin/xrayL
     cat <<EOF >/etc/systemd/system/xrayL.service
 [Unit]
