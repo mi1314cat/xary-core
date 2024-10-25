@@ -111,6 +111,7 @@ else
 fi
 
 # 配置文件生成
+mkdir -p /etc/xrayM
 cat <<EOF > /etc/xrayM/config.json
 {
     "log": {
