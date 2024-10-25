@@ -27,6 +27,10 @@ bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xra
 ```
 sudo systemctl enable xray
 ```
+## 设置开机自启， 并立即启动服务
+```
+systemctl enable --now xray.service
+```
 ## 禁用
 ```
 sudo systemctl disable xray
