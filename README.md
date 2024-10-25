@@ -1,5 +1,10 @@
 # xray-core一键脚本
-## 面板 Marzban
+## 面板
+### 轻量
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/FranzKafkaYu/x-ui/master/install.sh)
+```
+### docker Marzban
 ```bash
 sudo bash -c "$(curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban.sh)" @ install
 ```
