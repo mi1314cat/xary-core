@@ -1,4 +1,7 @@
 # xray-core一键脚本
+```bash
+bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/sock5.sh)
+```
 ## 面板
 ### 轻量
 ```bash
