@@ -60,7 +60,9 @@ generate_port() {
 # 安装xray
 echo "安装最新 Xray..."
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+
 mv /usr/local/bin/xray /usr/local/bin/xrayM
+
 chmod +x /usr/local/bin/xrayM
 
 cat <<EOF >/etc/systemd/system/xrayM.service
