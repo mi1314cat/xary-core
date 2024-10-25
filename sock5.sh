@@ -17,7 +17,7 @@ SYSTEM_NAME=$(grep -i pretty_name /etc/os-release | cut -d \" -f2)
 CORE_ARCH=$(arch)
 
 # 介绍信息
-show_banner() {
+
     clear
     cat << "EOF"
                        |\__/,|   (\\
@@ -30,7 +30,7 @@ EOF
     echo -e "${GREEN}Architecture: ${PLAIN}${CORE_ARCH}"
     echo -e "${GREEN}Version: ${PLAIN}1.0.0"
     echo -e "----------------------------------------"
-}
+
 
 # 打印带颜色的消息
 print_info() {
@@ -58,7 +58,7 @@ generate_port() {
     done
 }
 # 安装xray
-install_xray() {
+
     echo "安装最新 Xray..."
    
     bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
@@ -80,15 +80,12 @@ WantedBy=multi-user.target
  EOF 
  
 
-
- 
-        read -p "SOCKS 账号 (默认 $DEFAULT_SOCKS_USERNAME): " SOCKS_USERNAME
-        SOCKS_USERNAME=${SOCKS_USERNAME:-$DEFAULT_SOCKS_USERNAME}
-
-        read -p "SOCKS 密码 (默认 $DEFAULT_SOCKS_PASSWORD): " SOCKS_PASSWORD
-        SOCKS_PASSWORD=${SOCKS_PASSWORD:-$DEFAULT_SOCKS_PASSWORD}
-    # 提示输入监听端口号
-    PORT=$(generate_port "sock5")
+read -p "SOCKS 账号 (默认 $DEFAULT_SOCKS_USERNAME): " SOCKS_USERNAME
+SOCKS_USERNAME=${SOCKS_USERNAME:-$DEFAULT_SOCKS_USERNAME}
+read -p "SOCKS 密码 (默认 $DEFAULT_SOCKS_PASSWORD): " SOCKS_PASSWORD
+SOCKS_PASSWORD=${SOCKS_PASSWORD:-$DEFAULT_SOCKS_PASSWORD}
+ # 提示输入监听端口号
+ PORT=$(generate_port "sock5")
 
     # 获取公网 IP 地址
     PUBLIC_IP_V4=$(curl -s https://api.ipify.org)
@@ -155,17 +152,9 @@ EOF
     print_info "账号：${SOCKS_USERNAME}"
     print_info "密码：${SOCKS_PASSWORD}"
     print_info "配置文件已保存到：/etc/xrayM/config.json"
-}
 
 
 
 
 
 
-# 主程序
-main() {
-    show_banner
-    install_xray
-}
-
-main "$@"
