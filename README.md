@@ -12,7 +12,10 @@ bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/reali
 ```bash
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/reality_xray_ip.sh)
 ```
-
+## 安装升级 Xray-core
+```
+bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+```
 ## xary  vmess+ws or socks 脚本
 ### socks
 ```bash
