@@ -71,11 +71,11 @@ After=network.target
 [Service]
 ExecStart=/usr/local/bin/xrayM -c /etc/xrayM/config.json
 Restart=on-failure
-User=nobody
 RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
+
 EOF
 
 # SOCKS 配置
