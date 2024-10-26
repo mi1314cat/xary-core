@@ -88,17 +88,17 @@ generate_port() {
 }
 
 # SOCKS 配置
-DEFAULT_SOCKS_USERNAME="userb"
-DEFAULT_SOCKS_PASSWORD="passwordb"
+DEFAULT_SOCKS_USERNAME="admin96"
+DEFAULT_SOCKS_PASSWORD="catmi666"
 read -p "SOCKS 账号 (默认 $DEFAULT_SOCKS_USERNAME): " SOCKS_USERNAME
 SOCKS_USERNAME=${SOCKS_USERNAME:-$DEFAULT_SOCKS_USERNAME}
 read -p "SOCKS 密码 (默认 $DEFAULT_SOCKS_PASSWORD): " SOCKS_PASSWORD
 SOCKS_PASSWORD=${SOCKS_PASSWORD:-$DEFAULT_SOCKS_PASSWORD}
 
 # 提示输入监听端口号
-VMES_PORT=$(generate_port "vmess")
-SOCKS_PORT=$(generate_port "socks5")
 
+SOCKS_PORT=$(generate_port "socks5")
+VMES_PORT=$(generate_port "vmess")
 # 获取公网 IP 地址
 PUBLIC_IP_V4=$(curl -s https://api.ipify.org)
 PUBLIC_IP_V6=$(curl -s https://api64.ipify.org)
