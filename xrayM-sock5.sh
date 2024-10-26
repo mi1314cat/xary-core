@@ -124,18 +124,20 @@ cat <<EOF > /etc/xrayM/config.json
     },
     "inbounds": [
         {
+          
             "listen": "::",
             "port": ${PORT},
             "protocol": "socks",
             "settings": {
+                "auth": "password",
                 "accounts": [
                     {
                         "user": "${SOCKS_USERNAME}",
                         "pass": "${SOCKS_PASSWORD}"
                     }
                 ]
-            }
-        }
+              }
+              }
     ],
     "outbounds": [
         {
