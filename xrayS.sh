@@ -74,7 +74,7 @@ generate_port() {
         port=$((RANDOM % 10001 + 10000))
         read -p "请为 ${protocol} 输入监听端口(默认为随机生成): " user_input
         port=${user_input:-$port}
-        if! ss -tuln | grep -q ":$port\b"; then
+        if ! ss -tuln | grep -q ":$port\b"; then
             echo "$port"
             return 0
         else
