@@ -154,11 +154,23 @@ sudo systemctl daemon-reload
 sudo systemctl enable xrayM
 sudo systemctl restart xrayM || { echo "重启 xrayM 服务失败"; exit 1; }
 
+# 保存信息到文件
+OUTPUT_DIR="/root/xrayM"
+mkdir -p "$OUTPUT_DIR"
+{
+    echo "xray 安装完成！"
+    echo "服务器地址：${PUBLIC_IP}"
+    echo "端口：${PORT}"
+    echo "账号：${SOCKS_USERNAME}"
+    echo "密码：${SOCKS_PASSWORD}"
+    echo "配置文件已保存到：/root/xrayM/sock5.txt"
+} > "$OUTPUT_DIR/sock5.txt"
+
 print_info "xray 安装完成！"
 print_info "服务器地址：${PUBLIC_IP}"
 print_info "端口：${PORT}"
 print_info "账号：${SOCKS_USERNAME}"
 print_info "密码：${SOCKS_PASSWORD}"
-print_info "配置文件已保存到：/etc/xrayM/config.json"
+print_info "配置文件已保存到：/root/xrayM/sock5.txt"
 
 sudo systemctl status xrayM
