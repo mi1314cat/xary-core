@@ -79,6 +79,8 @@ generate_config() {
     local uuid="$3"
     local ws_path="$4"
     local socks_port="$5"
+    local socks_user="$6"
+    local socks_pass="$7"
 
     cat <<EOF > /etc/xrayS/config.json
 {
@@ -110,12 +112,11 @@ generate_config() {
             "port": ${socks_port},
             "protocol": "socks",
             "settings": {
-                "auth": "noauth",
-                "ip": "127.0.0.1",
-                "users": [
+                "auth": "password",
+                "accounts": [
                     {
-                        "user": "user",
-                        "pass": "pass"
+                        "user": "${socks_user}",
+                        "pass": "${socks_pass}"
                     }
                 ]
             }
@@ -159,8 +160,14 @@ while true; do
             echo "请输入 SOCKS5 监听端口 (默认为 1080): "
             read -p "端口: " SOCKS_PORT
             SOCKS_PORT=${SOCKS_PORT:-1080}
+            echo "请输入 SOCKS5 用户名 (默认为 user): "
+            read -p "用户名: " SOCKS_USER
+            SOCKS_USER=${SOCKS_USER:-user}
+            echo "请输入 SOCKS5 密码 (默认为 pass): "
+            read -p "密码: " SOCKS_PASS
+            SOCKS_PASS=${SOCKS_PASS:-pass}
             UUID=$(generate_uuid)
-            generate_config "vmess" 443 "$UUID" "$(generate_ws_path)" "$SOCKS_PORT"
+            generate_config "vmess" 443 "$UUID" "$(generate_ws_path)" "$SOCKS_PORT" "$SOCKS_USER" "$SOCKS_PASS"
             generate_service_file
             create_shortcut
             print_info "SOCKS5 安装完成！"
@@ -175,7 +182,13 @@ while true; do
             echo "请输入 SOCKS5 监听端口 (默认为 1080): "
             read -p "端口: " SOCKS_PORT
             SOCKS_PORT=${SOCKS_PORT:-1080}
-            generate_config "vmess" "$VMESS_PORT" "$UUID" "$WS_PATH" "$SOCKS_PORT"
+            echo "请输入 SOCKS5 用户名 (默认为 user): "
+            read -p "用户名: " SOCKS_USER
+            SOCKS_USER=${SOCKS_USER:-user}
+            echo "请输入 SOCKS5 密码 (默认为 pass): "
+            read -p "密码: " SOCKS_PASS
+            SOCKS_PASS=${SOCKS_PASS:-pass}
+            generate_config "vmess" "$VMESS_PORT" "$UUID" "$WS_PATH" "$SOCKS_PORT" "$SOCKS_USER" "$SOCKS_PASS"
             generate_service_file
             create_shortcut
             print_info "Vmess + WS 安装完成！"
