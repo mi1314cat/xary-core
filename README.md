@@ -3,6 +3,10 @@
 ```bash
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xrayM-sock5.sh)
 ```
+## xray-sock5 多端口
+```bash
+bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/multiport-sock5.sh)
+```
 ## 面板
 ### 轻量
 ```bash
@@ -25,7 +29,7 @@ bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/reali
 ```
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 ```
-## xary  vmess+ws or socks 多端口脚本
+## xary  vmess+ws or socks 多ip多端口脚本
 ### socks
 ```bash
 bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xrayL.sh) socks
