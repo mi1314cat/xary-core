@@ -1,4 +1,5 @@
 # xray-core一键脚本
+## xray-sock5
 ```bash
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/sock5.sh)
 ```
@@ -24,7 +25,7 @@ bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/reali
 ```
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 ```
-## xary  vmess+ws or socks 脚本
+## xary  vmess+ws or socks 多端口脚本
 ### socks
 ```bash
 bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xray.sh) socks
