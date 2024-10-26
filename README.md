@@ -12,7 +12,7 @@ bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xrayw
 ```bash
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xrayM-sock5.sh)
 ```
-## xrayM-sock5 多端口
+#### xrayM-sock5 多端口
 ```bash
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/multiport-sock5.sh)
 ```
