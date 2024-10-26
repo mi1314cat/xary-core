@@ -1,4 +1,5 @@
 # xray-core一键脚本
+## xrayS- vmess+ws和sock5
 ```bash
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xrayS.sh)
 ```
@@ -7,7 +8,7 @@ bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xrayS
 ```bash
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xrayw-vmess.sh)
 ```
-## xrayM-sock5
+### xrayM-sock5
 ```bash
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xrayM-sock5.sh)
 ```
