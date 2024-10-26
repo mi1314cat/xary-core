@@ -123,7 +123,6 @@ random_website() {
         "swift.com"
         "academy.nvidia.com"
         "cisco.com"
-        "samsung.com"
         "amd.com"
         "apple.com"
         "music.apple.com"
