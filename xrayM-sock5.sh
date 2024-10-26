@@ -21,7 +21,6 @@ cat << "EOF"
                      _.|o o  |_   ) )
        -------------(((---(((-------------------
                    catmi.xrayM.sock5
-                
        -----------------------------------------
 EOF
 echo -e "${GREEN}System: ${PLAIN}${SYSTEM_NAME}"
@@ -60,11 +59,11 @@ generate_port() {
 
 # 安装xray
 echo "安装最新 Xray..."
-bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install || { echo "Xray 安装失败"; exit 1; }
 
-mv /usr/local/bin/xray /usr/local/bin/xrayM
+mv /usr/local/bin/xray /usr/local/bin/xrayM || { echo "移动文件失败"; exit 1; }
 
-chmod +x /usr/local/bin/xrayM
+chmod +x /usr/local/bin/xrayM || { echo "修改权限失败"; exit 1; }
 
 cat <<EOF >/etc/systemd/system/xrayM.service
 [Unit]
@@ -78,7 +77,6 @@ RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
-
 EOF
 
 # SOCKS 配置
@@ -124,7 +122,6 @@ cat <<EOF > /etc/xrayM/config.json
     },
     "inbounds": [
         {
-          
             "listen": "::",
             "port": ${PORT},
             "protocol": "socks",
@@ -136,8 +133,8 @@ cat <<EOF > /etc/xrayM/config.json
                         "pass": "${SOCKS_PASSWORD}"
                     }
                 ]
-              }
-              }
+            }
+        }
     ],
     "outbounds": [
         {
@@ -155,7 +152,8 @@ EOF
 sudo systemctl daemon-reload
 
 sudo systemctl enable xrayM
-sudo systemctl restart xraM
+sudo systemctl restart xrayM || { echo "重启 xrayM 服务失败"; exit 1; }
+
 print_info "xray 安装完成！"
 print_info "服务器地址：${PUBLIC_IP}"
 print_info "端口：${PORT}"
