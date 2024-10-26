@@ -1,4 +1,5 @@
 # xray-core一键脚本
+## xrayW- vmess+ws
 ```bash
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xrayw-vmess.sh)
 ```
