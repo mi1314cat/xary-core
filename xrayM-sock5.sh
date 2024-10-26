@@ -152,6 +152,8 @@ cat <<EOF > /etc/xrayM/config.json
 }
 EOF
 sudo systemctl stop xrayM
+sudo systemctl daemon-reload
+
 sudo systemctl enable xrayM
 sudo systemctl restart xraM
 print_info "xray 安装完成！"
