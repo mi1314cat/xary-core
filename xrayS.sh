@@ -49,6 +49,23 @@ generate_ws_path() {
 # 安装xray
 echo "安装最新 Xray..."
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install || { echo "Xray 安装失败"; exit 1; }
+mv /usr/local/bin/xray /usr/local/bin/xrayS || { echo "移动文件失败"; exit 1; }
+
+chmod +x /usr/local/bin/xrayS || { echo "修改权限失败"; exit 1; }
+
+cat <<EOF >/etc/systemd/system/xrayS.service
+[Unit]
+Description=XrayS Service
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/xrayS -c /etc/xrayS/config.json
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
 
 # 生成端口的函数
 generate_port() {
@@ -104,8 +121,8 @@ UUID=$(generate_uuid)
 WS_PATH=$(generate_ws_path)
 
 # 配置文件生成
-mkdir -p /etc/xray
-cat <<EOF > /etc/xray/config.json
+mkdir -p /etc/xrayS
+cat <<EOF > /etc/xrayS/config.json
 {
     "log": {
         "disabled": false,
