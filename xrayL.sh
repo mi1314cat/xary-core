@@ -4,7 +4,7 @@ printf "\e[92m"
 printf "                       |\\__/,|   (\\\\ \n"
 printf "                     _.|o o  |_   ) )\n"
 printf "       -------------(((---(((-------------------\n"
-printf "                     catmi.xray \n"
+printf "                     catmi.xrayL \n"
 printf "       -----------------------------------------\n"
 printf "\e[0m"
 
