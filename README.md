@@ -28,11 +28,11 @@ bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release
 ## xary  vmess+ws or socks 多端口脚本
 ### socks
 ```bash
-bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xray.sh) socks
+bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xrayL.sh) socks
 ```
 ### vmess+ws
 ```bash
-bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xray.sh) vmess
+bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xrayL.sh) vmess
 ```
 # xray服务管理
 ## 启用
