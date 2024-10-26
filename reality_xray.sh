@@ -136,7 +136,6 @@ random_website() {
         "tidal.com"
         "zoro.to"
         "pixiv.co.jp"
-        "mxj.myanimelist.net"
         "mora.jp"
         "j-wave.co.jp"
         "dmm.com"
