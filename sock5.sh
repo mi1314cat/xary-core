@@ -148,7 +148,7 @@ cat <<EOF > /etc/xrayM/config.json
     ]
 }
 EOF
-
+sudo systemctl enable xrayM
 print_info "xray 安装完成！"
 print_info "服务器地址：${PUBLIC_IP}"
 print_info "端口：${PORT}"
