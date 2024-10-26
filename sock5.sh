@@ -20,7 +20,8 @@ cat << "EOF"
                        |\__/,|   (\\
                      _.|o o  |_   ) )
        -------------(((---(((-------------------
-                    catmi.Hysteria 2 
+                   catmi.xray.sock5
+                
        -----------------------------------------
 EOF
 echo -e "${GREEN}System: ${PLAIN}${SYSTEM_NAME}"
