@@ -151,7 +151,7 @@ cat <<EOF > /etc/xrayM/config.json
     ]
 }
 EOF
-sudo systemctl kill xrayM
+sudo systemctl stop xrayM
 sudo systemctl enable xrayM
 sudo systemctl restart xraM
 print_info "xray 安装完成！"
@@ -160,5 +160,5 @@ print_info "端口：${PORT}"
 print_info "账号：${SOCKS_USERNAME}"
 print_info "密码：${SOCKS_PASSWORD}"
 print_info "配置文件已保存到：/etc/xrayM/config.json"
-sudo systemctl restart xrayM
+
 sudo systemctl status xrayM
