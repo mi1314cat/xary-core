@@ -147,9 +147,11 @@ while true; do
     echo "1. 安装 SOCKS5"
     echo "2. 安装 Vmess + WS"
     echo "3. 查看 Xray 状态"
-    echo "4. 删除配置"
-    echo "5. 退出"
-    read -p "请输入选项 [1-5]: " option
+    echo "4. 重启 Xray"
+    echo "5. 查看配置"
+    echo "6. 删除配置"
+    echo "7. 退出"
+    read -p "请输入选项 [1-7]: " option
 
     case $option in
         1)
@@ -183,6 +185,15 @@ while true; do
             sudo systemctl status xrayS
             ;;
         4)
+            echo "重启 Xray 服务..."
+            sudo systemctl restart xrayS
+            print_info "Xray 服务已重启！"
+            ;;
+        5)
+            echo "Xray 配置文件内容:"
+            cat /etc/xrayS/config.json
+            ;;
+        6)
             echo "删除配置..."
             rm -f /etc/xrayS/config.json
             rm -f /etc/systemd/system/xrayS.service
@@ -190,7 +201,7 @@ while true; do
             sudo systemctl disable xrayS
             print_info "配置已删除，服务已停止并禁用。"
             ;;
-        5)
+        7)
             exit 0
             ;;
         *)
