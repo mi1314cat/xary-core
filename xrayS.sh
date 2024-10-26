@@ -7,7 +7,10 @@ YELLOW="\033[33m"
 PLAIN="\033[0m"
 
 # 检查是否为root用户
-[[ $EUID -ne 0 ]] && echo -e "${RED}错误：${PLAIN} 必须使用root用户运行此脚本！\n" && exit 1
+if [[ $EUID -ne 0 ]]; then
+    echo -e "${RED}错误：${PLAIN}必须使用root用户运行此脚本！\n"
+    exit 1
+fi
 
 # 系统信息
 SYSTEM_NAME=$(grep -i pretty_name /etc/os-release | cut -d \" -f2)
@@ -48,11 +51,12 @@ generate_ws_path() {
 
 # 安装xray
 echo "安装最新 Xray..."
-bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install || { echo "Xray 安装失败"; exit 1; }
-mv /usr/local/bin/xray /usr/local/bin/xrayS || { echo "移动文件失败"; exit 1; }
+bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install || { print_error "Xray 安装失败"; exit 1; }
+mv /usr/local/bin/xray /usr/local/bin/xrayS || { print_error "移动文件失败"; exit 1; }
 
-chmod +x /usr/local/bin/xrayS || { echo "修改权限失败"; exit 1; }
+chmod +x /usr/local/bin/xrayS || { print_error "修改权限失败"; exit 1; }
 
+# 创建systemd服务
 cat <<EOF >/etc/systemd/system/xrayS.service
 [Unit]
 Description=XrayS Service
@@ -112,7 +116,7 @@ if [ "$IP_CHOICE" -eq 1 ]; then
 elif [ "$IP_CHOICE" -eq 2 ]; then
     PUBLIC_IP=$PUBLIC_IP_V6
 else
-    echo "无效选择，退出脚本"
+    print_error "无效选择，退出脚本"
     exit 1
 fi
 
@@ -177,9 +181,9 @@ cat <<EOF > /etc/xrayS/config.json
 EOF
 
 # 重载systemd服务配置
-sudo systemctl daemon-reload
-sudo systemctl enable xray
-sudo systemctl restart xray || { echo "重启 xray 服务失败"; exit 1; }
+systemctl daemon-reload
+systemctl enable xrayS || { print_error "启用 xrayS 服务失败"; exit 1; }
+systemctl restart xrayS || { print_error "重启 xrayS 服务失败"; exit 1; }
 
 # 保存信息到文件
 OUTPUT_DIR="/root/xray"
@@ -206,4 +210,4 @@ print_info "socks5 账号：${SOCKS_USERNAME}"
 print_info "socks5 密码：${SOCKS_PASSWORD}"
 print_info "配置文件已保存到：/root/xray/xrayS.txt"
 
-sudo systemctl status xray
+systemctl status xrayS
