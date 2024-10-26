@@ -19,7 +19,7 @@ cat << "EOF"
                        |\__/,|   (\\
                      _.|o o  |_   ) )
        -------------(((---(((-------------------
-                   catmi.vmess.ws
+                    catmi.xrayS
        -----------------------------------------
 EOF
 echo -e "${GREEN}System: ${PLAIN}${SYSTEM_NAME}"
