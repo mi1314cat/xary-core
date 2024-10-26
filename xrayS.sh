@@ -176,8 +176,8 @@ mkdir -p "$OUTPUT_DIR"
     echo "socks5 端口：${SOCKS_PORT}"
     echo "socks5 账号：${SOCKS_USERNAME}"
     echo "socks5 密码：${SOCKS_PASSWORD}"
-    echo "配置文件已保存到：/etc/xray/config.json"
-} > "$OUTPUT_DIR/install_info.txt"
+    echo "配置文件已保存到：/root/xray/xrayS.txt"
+} > "$OUTPUT_DIR/xrayS.txt"
 
 print_info "xray 安装完成！"
 print_info "服务器地址：${PUBLIC_IP}"
@@ -187,6 +187,6 @@ print_info "vmess WS 路径：${WS_PATH}"
 print_info "socks5 端口：${SOCKS_PORT}"
 print_info "socks5 账号：${SOCKS_USERNAME}"
 print_info "socks5 密码：${SOCKS_PASSWORD}"
-print_info "配置文件已保存到：/etc/xray/config.json"
+print_info "配置文件已保存到：/root/xray/xrayS.txt"
 
 sudo systemctl status xray
