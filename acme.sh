@@ -24,8 +24,9 @@ if [ "$choice" -eq 1 ]; then
     # 更新系统并安装必要的依赖项
     echo "更新系统并安装依赖项..."
     sudo apt update && sudo apt upgrade -y
+    sudo apt install ufw -y
     sudo apt install -y curl socat git cron openssl
-
+    ufw disable
     # 安装 acme.sh
     echo "安装 acme.sh..."
     curl https://get.acme.sh | sh
