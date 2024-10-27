@@ -11,6 +11,10 @@ read -p "请输入选项 (1 或 2): " choice
 
 # 提示用户输入域名和电子邮件地址
 read -p "请输入域名: " DOMAIN
+
+# 将用户输入的域名转换为小写
+DOMAIN_LOWER=$(echo "$DOMAIN" | tr '[:upper:]' '[:lower:]')
+
 read -p "请输入电子邮件地址: " EMAIL
 
 # 创建目标目录
@@ -40,34 +44,34 @@ if [ "$choice" -eq 1 ]; then
 
     # 申请 SSL 证书
     echo "申请 SSL 证书..."
-    if ! "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"; then
+    if ! "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN_LOWER"; then
         echo "证书申请失败，删除已生成的文件和文件夹。"
-        rm -f "$HOME/${DOMAIN}.key" "$HOME/${DOMAIN}.crt"
-        "$HOME/.acme.sh/acme.sh" --remove -d "$DOMAIN"
+        rm -f "$HOME/${DOMAIN_LOWER}.key" "$HOME/${DOMAIN_LOWER}.crt"
+        "$HOME/.acme.sh/acme.sh" --remove -d "$DOMAIN_LOWER"
         exit 1
     fi
 
     # 安装 SSL 证书并移动到目标目录
     echo "安装 SSL 证书..."
-    "$HOME/.acme.sh/acme.sh" --installcert -d "$DOMAIN" \
-        --key-file       "$TARGET_DIR/${DOMAIN}.key" \
-        --fullchain-file "$TARGET_DIR/${DOMAIN}.crt"
+    "$HOME/.acme.sh/acme.sh" --installcert -d "$DOMAIN_LOWER" \
+        --key-file       "$TARGET_DIR/${DOMAIN_LOWER}.key" \
+        --fullchain-file "$TARGET_DIR/${DOMAIN_LOWER}.crt"
 
     # 提示用户证书已生成
     echo "SSL 证书和私钥已生成并移动到 $TARGET_DIR:"
-    echo "证书: $TARGET_DIR/${DOMAIN}.crt"
-    echo "私钥: $TARGET_DIR/${DOMAIN}.key"
+    echo "证书: $TARGET_DIR/${DOMAIN_LOWER}.crt"
+    echo "私钥: $TARGET_DIR/${DOMAIN_LOWER}.key"
 
     # 创建自动续期的脚本
     cat << EOF > /root/renew_cert.sh
 #!/bin/bash
 export PATH="\$HOME/.acme.sh:\$PATH"
-\$HOME/.acme.sh/acme.sh --renew -d "$DOMAIN" --key-file "$TARGET_DIR/${DOMAIN}.key" --fullchain-file "$TARGET_DIR/${DOMAIN}.crt"
+\$HOME/.acme.sh/acme.sh --renew -d "$DOMAIN_LOWER" --key-file "$TARGET_DIR/${DOMAIN_LOWER}.key" --fullchain-file "$TARGET_DIR/${DOMAIN_LOWER}.crt"
 EOF
     chmod +x /root/renew_cert.sh
 
     # 创建自动续期的 cron 任务，每天午夜执行一次
-    (crontab -l 2>/dev/null; echo "0 0 * * * /root/renew_cert.sh > /dev/null 2>&1") | crontab -
+    (crontab -l 2>/dev/null; echo "0 0 * * * /root/renew_cert.sh >> /var/log/renew_cert.log 2>&1") | crontab -
 
     echo "完成！请确保在您的 Web 服务器配置中使用新的 SSL 证书。"
 
@@ -82,19 +86,15 @@ elif [ "$choice" -eq 2 ]; then
 
     # 手动获取证书
     echo "手动获取证书..."
-    sudo certbot certonly --manual --preferred-challenges dns -d "$DOMAIN"
+    sudo certbot certonly --manual --preferred-challenges dns -d "$DOMAIN_LOWER"
 
     # 移动生成的证书到目标文件夹中
     echo "移动证书到 $TARGET_DIR ..."
-    sudo mv "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$TARGET_DIR/"
-    sudo mv "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$TARGET_DIR/"
+    sudo mv "/etc/letsencrypt/live/$DOMAIN_LOWER/fullchain.pem" "$TARGET_DIR/"
+    sudo mv "/etc/letsencrypt/live/$DOMAIN_LOWER/privkey.pem" "$TARGET_DIR/"
 
     # 创建自动续期的 cron 任务
-    (crontab -l 2>/dev/null; echo "0 0 * * * certbot renew --quiet --post-hook 'mv /etc/letsencrypt/live/$DOMAIN/fullchain.pem $TARGET_DIR/fullchain.pem && mv /etc/letsencrypt/live/$DOMAIN/privkey.pem $TARGET_DIR/privkey.pem'") | crontab -
-    # 移动生成的证书到目标文件夹中
-    echo "移动证书到 $TARGET_DIR ..."
-    sudo mv "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$TARGET_DIR/"
-    sudo mv "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$TARGET_DIR/"
+    (crontab -l 2>/dev/null; echo "0 0 * * * certbot renew --post-hook 'mv /etc/letsencrypt/live/$DOMAIN_LOWER/fullchain.pem $TARGET_DIR/fullchain.pem && mv /etc/letsencrypt/live/$DOMAIN_LOWER/privkey.pem $TARGET_DIR/privkey.pem'") | crontab -
 
     echo "SSL 证书已安装并移动至 $TARGET_DIR 目录中"
 else
