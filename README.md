@@ -47,6 +47,10 @@ bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xra
 ```bash
 bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xrayL.sh) vmess
 ```
+#申请证书
+```bash
+bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/acme.sh)
+```
 # xray服务管理
 ## 启用
 ```
