@@ -137,7 +137,6 @@ random_website() {
         "pixiv.co.jp"
         "mora.jp"
         "j-wave.co.jp"
-        "dmm.com"
         "booth.pm"
         "ivi.tv"
         "leercapitulo.com"
