@@ -76,8 +76,8 @@ EOF
     echo "完成！请确保在您的 Web 服务器配置中使用新的 SSL 证书。"
 
 elif [ "$choice" -eq 2 ]; then
-    # 选项 2: 手动获取 SSL 证书并移动到 /catmi 文件夹
-    echo "将进行手动获取 SSL 证书并移动到 /catmi 文件夹..."
+    # 选项 2: 手动获取 SSL 证书证书安装/etc/letsencrypt/live/$DOMAIN_LOWER 目录 文件夹
+    echo "将进行手动获取 SSL 证书证书安装/etc/letsencrypt/live/$DOMAIN_LOWER 目录文件夹..."
 
     # 安装 Certbot
     echo "安装 Certbot..."
@@ -88,15 +88,13 @@ elif [ "$choice" -eq 2 ]; then
     echo "手动获取证书..."
     sudo certbot certonly --manual --preferred-challenges dns -d "$DOMAIN_LOWER"
 
-    # 移动生成的证书到目标文件夹中
-    echo "移动证书到 $TARGET_DIR ..."
-    sudo mv "/etc/letsencrypt/live/$DOMAIN_LOWER/fullchain.pem" "$TARGET_DIR/"
-    sudo mv "/etc/letsencrypt/live/$DOMAIN_LOWER/privkey.pem" "$TARGET_DIR/"
+    
 
     # 创建自动续期的 cron 任务
-    (crontab -l 2>/dev/null; echo "0 0 * * * certbot renew --post-hook 'mv /etc/letsencrypt/live/$DOMAIN_LOWER/fullchain.pem $TARGET_DIR/fullchain.pem && mv /etc/letsencrypt/live/$DOMAIN_LOWER/privkey.pem $TARGET_DIR/privkey.pem'") | crontab -
+    (crontab -l 2>/dev/null; echo "0 0 * * * certbot renew") | crontab -
 
-    echo "SSL 证书已安装并移动至 $TARGET_DIR 目录中"
+
+    echo "SSL 证书已安装/etc/letsencrypt/live/$DOMAIN_LOWER 目录中"
 else
     echo "无效选项，请输入 1 或 2."
 fi
