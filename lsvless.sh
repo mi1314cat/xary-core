@@ -107,26 +107,25 @@ cat <<EOF > /etc/xrayls/config.json
     },
     "inbounds": [
         {
-    "port":{PORT},
-     "tag": "VLESS-WS", 
-      "protocol": "VLESS", 
-      "settings": {
-        "clients": [
-          {
-	  "id":"${UUID}",
-            "alterId": 64
-          }
-        ],
-	    "decryption": "none"
-      }, 
-      "streamSettings": {
-        "network": "ws", 
-        "wsSettings": {
-	  "path":"${WS_PATH}"
+            "port": ${PORT},
+            "tag": "VLESS-WS",
+            "protocol": "VLESS",
+            "settings": {
+                "clients": [
+                    {
+                        "id": "${UUID}"
+                    }
+                ],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "ws",
+                "wsSettings": {
+                    "path": "${WS_PATH}"
+                }
+            }
         }
-      }
-    }
-  ],
+    ],
     "outbounds": [
         {
             "protocol": "freedom",
