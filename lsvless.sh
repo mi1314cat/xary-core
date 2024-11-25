@@ -72,7 +72,7 @@ UUID=$(generate_uuid)
 WS_PATH=$(generate_ws_path)
 
 # 提示输入监听端口号
-read -p "请输入 Vmess 监听端口 (默认为 443): " PORT
+read -p "请输入 Vless 监听端口 (默认为 443): " PORT
 PORT=${PORT:-443}
 
 # 获取公网 IP 地址
@@ -113,7 +113,8 @@ cat <<EOF > /etc/xrayls/config.json
             "settings": {
                 "clients": [
                     {
-                        "id": "${UUID}"
+                        "id": "${UUID}",
+                        "alterId": 64
                     }
                 ],
                 "decryption": "none"
