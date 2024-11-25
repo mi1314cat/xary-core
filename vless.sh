@@ -45,21 +45,123 @@ generate_uuid() {
 generate_ws_path() {
     echo "/$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 10)"
 }
+ssl() {
+    set -e
 
+# 提供操作选项供用户选择
+echo "请选择要执行的操作："
+echo "1) 有80和443端口"
+echo "2) 无80 443端口"
+read -p "请输入选项 (1 或 2): " choice
+
+# 提示用户输入域名和电子邮件地址
+read -p "请输入域名: " DOMAIN
+
+# 将用户输入的域名转换为小写
+DOMAIN_LOWER=$(echo "$DOMAIN" | tr '[:upper:]' '[:lower:]')
+
+read -p "请输入电子邮件地址: " EMAIL
+
+# 创建目标目录
+TARGET_DIR="/root/catmi"
+mkdir -p "$TARGET_DIR"
+
+if [ "$choice" -eq 1 ]; then
+    # 选项 1: 安装更新、克隆仓库并执行脚本
+    echo "执行安装acme证书..."
+
+    # 更新系统并安装必要的依赖项
+    echo "更新系统并安装依赖项..."
+    sudo apt update && sudo apt upgrade -y
+    sudo apt install ufw -y
+    sudo apt install -y curl socat git cron openssl
+    ufw disable
+    # 安装 acme.sh
+    echo "安装 acme.sh..."
+    curl https://get.acme.sh | sh
+
+    # 设置路径
+    export PATH="$HOME/.acme.sh:$PATH"
+
+    # 注册账户
+    echo "注册账户..."
+    "$HOME/.acme.sh/acme.sh" --register-account -m "$EMAIL"
+
+    # 申请 SSL 证书
+    echo "申请 SSL 证书..."
+    if ! "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN_LOWER"; then
+        echo "证书申请失败，删除已生成的文件和文件夹。"
+        rm -f "$HOME/${DOMAIN_LOWER}.key" "$HOME/${DOMAIN_LOWER}.crt"
+        "$HOME/.acme.sh/acme.sh" --remove -d "$DOMAIN_LOWER"
+        exit 1
+    fi
+
+    # 安装 SSL 证书并移动到目标目录
+    echo "安装 SSL 证书..."
+    "$HOME/.acme.sh/acme.sh" --installcert -d "$DOMAIN_LOWER" \
+        --key-file       "$TARGET_DIR/${DOMAIN_LOWER}.key" \
+        --fullchain-file "$TARGET_DIR/${DOMAIN_LOWER}.crt"
+        CERT_PATH="$TARGET_DIR/${DOMAIN_LOWER}.crt"
+        KEY_PATH="$TARGET_DIR/${DOMAIN_LOWER}.key"
+
+    # 提示用户证书已生成
+    echo "SSL 证书和私钥已生成并移动到 $TARGET_DIR:"
+    echo "证书: $TARGET_DIR/${DOMAIN_LOWER}.crt"
+    echo "私钥: $TARGET_DIR/${DOMAIN_LOWER}.key"
+
+    # 创建自动续期的脚本
+    cat << EOF > /root/renew_cert.sh
+#!/bin/bash
+export PATH="\$HOME/.acme.sh:\$PATH"
+\$HOME/.acme.sh/acme.sh --renew -d "$DOMAIN_LOWER" --key-file "$TARGET_DIR/${DOMAIN_LOWER}.key" --fullchain-file "$TARGET_DIR/${DOMAIN_LOWER}.crt"
+EOF
+    chmod +x /root/renew_cert.sh
+
+    # 创建自动续期的 cron 任务，每天午夜执行一次
+    (crontab -l 2>/dev/null; echo "0 0 * * * /root/renew_cert.sh >> /var/log/renew_cert.log 2>&1") | crontab -
+
+    echo "完成！请确保在您的 Web 服务器配置中使用新的 SSL 证书。"
+
+elif [ "$choice" -eq 2 ]; then
+    # 选项 2: 手动获取 SSL 证书证书安装/etc/letsencrypt/live/$DOMAIN_LOWER 目录 文件夹
+    echo "将进行手动获取 SSL 证书证书安装/etc/letsencrypt/live/$DOMAIN_LOWER 目录文件夹..."
+    CERT_PATH="/etc/letsencrypt/live/$DOMAIN_LOWER/fullchain.pem"
+    KEY_PATH="/etc/letsencrypt/live/$DOMAIN_LOWER/privkey.pem"
+
+    # 安装 Certbot
+    echo "安装 Certbot..."
+    sudo apt-get update
+    sudo apt-get install -y certbot openssl
+
+    # 手动获取证书
+    echo "手动获取证书..."
+    sudo certbot certonly --manual --preferred-challenges dns -d "$DOMAIN_LOWER"
+
+    
+
+    # 创建自动续期的 cron 任务
+    (crontab -l 2>/dev/null; echo "0 0 * * * certbot renew") | crontab -
+
+
+    echo "SSL 证书已安装/etc/letsencrypt/live/$DOMAIN_LOWER 目录中"
+else
+    echo "无效选项，请输入 1 或 2."
+fi
+}
 # 安装xray
 echo "安装最新 Xray..."
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install || { echo "Xray 安装失败"; exit 1; }
 
-mv /usr/local/bin/xray /usr/local/bin/xrayW || { echo "移动文件失败"; exit 1; }
-chmod +x /usr/local/bin/xrayW || { echo "修改权限失败"; exit 1; }
+mv /usr/local/bin/xray /usr/local/bin/xrayls || { echo "移动文件失败"; exit 1; }
+chmod +x /usr/local/bin/xrayls || { echo "修改权限失败"; exit 1; }
 
-cat <<EOF >/etc/systemd/system/xrayW.service
+cat <<EOF >/etc/systemd/system/xrayls.service
 [Unit]
-Description=XrayW Service
+Description=xrayls Service
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/xrayW -c /etc/xrayW/config.json
+ExecStart=/usr/local/bin/xrayls -c /etc/xrayls/config.json
 Restart=on-failure
 RestartSec=3
 
@@ -70,9 +172,10 @@ EOF
 # 生成 UUID 和 WS 路径
 UUID=$(generate_uuid)
 WS_PATH=$(generate_ws_path)
+bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/acme.sh)
 
 # 提示输入监听端口号
-read -p "请输入 Vmess 监听端口 (默认为 443): " PORT
+read -p "请输入 Vless 监听端口 (默认为 443): " PORT
 PORT=${PORT:-443}
 
 # 获取公网 IP 地址
@@ -97,8 +200,8 @@ else
 fi
 
 # 配置文件生成
-mkdir -p /etc/xrayW
-cat <<EOF > /etc/xrayW/config.json
+mkdir -p /etc/xrayls
+cat <<EOF > /etc/xrayls/config.json
 {
     "log": {
         "disabled": false,
@@ -108,21 +211,33 @@ cat <<EOF > /etc/xrayW/config.json
     "inbounds": [
         {
             "port": ${PORT},
-            "protocol": "vless",
+            "tag": "VLESS-WS",
+            "protocol": "VLESS",
             "settings": {
                 "clients": [
                     {
                         "id": "${UUID}",
                         "alterId": 64
                     }
-                ]
+                ],
+                "decryption": "none"
             },
             "streamSettings": {
-                "network": "ws",
-                "wsSettings": {
-                    "path": "${WS_PATH}"
-                }
+           "network": "ws",
+           "security": "tls",
+          "tlsSettings": {
+           "certificates": [
+            {
+                "certificateFile": "${CERT_PATH}",
+                "keyFile": "${KEY_PATH}"
             }
+        ]
+    },
+    "wsSettings": {
+        "path": "${WS_PATH}"
+    }
+}
+
         }
     ],
     "outbounds": [
@@ -136,11 +251,11 @@ EOF
 
 # 重载systemd服务配置
 sudo systemctl daemon-reload
-sudo systemctl enable xrayW
-sudo systemctl restart xrayW || { echo "重启 xrayW 服务失败"; exit 1; }
+sudo systemctl enable xrayls
+sudo systemctl restart xrayls || { echo "重启 xrayls 服务失败"; exit 1; }
 
 # 保存信息到文件
-OUTPUT_DIR="/root/xrayW"
+OUTPUT_DIR="/root/xrayls"
 mkdir -p "$OUTPUT_DIR"
 {
     echo "xray 安装完成！"
@@ -148,7 +263,7 @@ mkdir -p "$OUTPUT_DIR"
     echo "端口：${PORT}"
     echo "UUID：${UUID}"
     echo "WS 路径：${WS_PATH}"
-    echo "配置文件已保存到：/etc/xrayW/config.json"
+    echo "配置文件已保存到：/etc/xrayls/config.json"
 } > "$OUTPUT_DIR/install_info.txt"
 
 print_info "xray 安装完成！"
@@ -156,6 +271,6 @@ print_info "服务器地址：${PUBLIC_IP}"
 print_info "端口：${PORT}"
 print_info "UUID：${UUID}"
 print_info "WS 路径：${WS_PATH}"
-print_info "配置文件已保存到：/etc/xrayW/config.json"
+print_info "配置文件已保存到：/etc/xrayls/config.json"
 
-sudo systemctl status xrayW
+sudo systemctl status xrayls
