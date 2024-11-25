@@ -168,7 +168,7 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 EOF
-
+ssl
 # 生成 UUID 和 WS 路径
 UUID=$(generate_uuid)
 WS_PATH=$(generate_ws_path)
