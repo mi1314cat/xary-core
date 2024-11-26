@@ -307,7 +307,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable xrayls
 sudo systemctl restart xrayls || { echo "重启 xrayls 服务失败"; exit 1; }
 
-nginx 
+
 # 保存信息到文件
 OUTPUT_DIR="/root/xrayls"
 mkdir -p "$OUTPUT_DIR"
@@ -328,3 +328,4 @@ print_info "WS 路径：${WS_PATH}"
 print_info "配置文件已保存到：/etc/xrayls/config.json"
 
 sudo systemctl status xrayls
+nginx 
