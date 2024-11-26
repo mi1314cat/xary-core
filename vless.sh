@@ -273,8 +273,7 @@ cat <<EOF > /etc/xrayls/config.json
     },
     "inbounds": [
         {
-            "listen": "127.0.0.1",
-            "port": 9999,
+            "port": ${PORT},
             "tag": "VLESS-WS",
             "protocol": "VLESS",
             "settings": {
@@ -287,21 +286,11 @@ cat <<EOF > /etc/xrayls/config.json
                 "decryption": "none"
             },
             "streamSettings": {
-           "network": "ws",
-           "security": "tls",
-          "tlsSettings": {
-           "certificates": [
-            {
-                "certificateFile": "${CERT_PATH}",
-                "keyFile": "${KEY_PATH}"
+                "network": "ws",
+                "wsSettings": {
+                    "path": "${WS_PATH}"
+                }
             }
-        ]
-    },
-    "wsSettings": {
-        "path": "${WS_PATH}"
-    }
-}
-
         }
     ],
     "outbounds": [
