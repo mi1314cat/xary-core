@@ -148,6 +148,67 @@ else
     echo "无效选项，请输入 1 或 2."
 fi
 }
+
+nginx() {
+    apt install -y nginx
+    cat <<EOF >/etc/nginx/nginx.conf
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+include /etc/nginx/modules-enabled/*.conf;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    gzip on;
+
+    server {
+        listen ${PORT} ssl;
+        server_name ${DOMAIN_LOWER};
+
+        ssl_certificate       "${CERT_PATH}";
+        ssl_certificate_key   "${KEY_PATH}";
+        
+        ssl_session_timeout 1d;
+        ssl_session_cache shared:MozSSL:10m;
+        ssl_session_tickets off;
+        ssl_protocols    TLSv1.2 TLSv1.3;
+        ssl_prefer_server_ciphers off;
+
+        location / {
+            proxy_pass https://pan.imcxx.com;
+            proxy_redirect off;
+            sub_filter_once off;
+            sub_filter "pan.imcxx.com" $server_name;
+            proxy_set_header Host "pan.imcxx.com";
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+
+        location ${WS_PATH} {
+            proxy_redirect off;
+            proxy_pass http://127.0.0.1:9999;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+        }
+    }
+}
+EOF
+
+    systemctl reload nginx
+}
 # 安装xray
 echo "安装最新 Xray..."
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install || { echo "Xray 安装失败"; exit 1; }
@@ -169,14 +230,16 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-# 生成 UUID 和 WS 路径
-UUID=$(generate_uuid)
-WS_PATH=$(generate_ws_path)
-bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/acme.sh)
 
 # 提示输入监听端口号
 read -p "请输入 Vless 监听端口 (默认为 443): " PORT
 PORT=${PORT:-443}
+# 生成 UUID 和 WS 路径
+UUID=$(generate_uuid)
+WS_PATH=$(generate_ws_path)
+ssl
+nginx 
+
 
 # 获取公网 IP 地址
 PUBLIC_IP_V4=$(curl -s https://api.ipify.org)
@@ -210,7 +273,8 @@ cat <<EOF > /etc/xrayls/config.json
     },
     "inbounds": [
         {
-            "port": ${PORT},
+            "listen": "127.0.0.1",
+            "port": 9999,
             "tag": "VLESS-WS",
             "protocol": "VLESS",
             "settings": {
