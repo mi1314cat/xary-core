@@ -151,7 +151,7 @@ fi
 
 nginx() {
     apt install -y nginx
-    cat <<EOF >/etc/nginx/nginx.conf
+   cat <<EOF >/etc/nginx/nginx.conf
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
@@ -189,23 +189,24 @@ http {
             proxy_pass https://pan.imcxx.com;
             proxy_redirect off;
             sub_filter_once off;
-            sub_filter "pan.imcxx.com" $server_name;
-            proxy_set_header Host "pan.imcxx.com";
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            sub_filter "pan.imcxx.com" \$server_name;  # 替换为当前服务器的域名
+            proxy_set_header Host \$host;  # 使用当前请求的主机名
+            proxy_set_header X-Real-IP \$remote_addr;  # 使用客户端的真实 IP
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;  # 使用代理链的 IP
         }
 
         location ${WS_PATH} {
             proxy_redirect off;
             proxy_pass http://127.0.0.1:9999;
             proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Upgrade \$http_upgrade;
             proxy_set_header Connection "upgrade";
-            proxy_set_header Host $host;
+            proxy_set_header Host \$host;
         }
     }
 }
 EOF
+
 
     systemctl reload nginx
 }
