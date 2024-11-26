@@ -237,8 +237,7 @@ PORT=${PORT:-443}
 # 生成 UUID 和 WS 路径
 UUID=$(generate_uuid)
 WS_PATH=$(generate_ws_path)
-ssl
-nginx 
+
 
 
 # 获取公网 IP 地址
@@ -317,7 +316,8 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable xrayls
 sudo systemctl restart xrayls || { echo "重启 xrayls 服务失败"; exit 1; }
-
+ssl
+nginx 
 # 保存信息到文件
 OUTPUT_DIR="/root/xrayls"
 mkdir -p "$OUTPUT_DIR"
