@@ -150,7 +150,7 @@ fi
 }
 
 nginx() {
-    apt install -y nginx
+    
     cat <<EOF >/etc/nginx/nginx.conf
 user www-data;
 worker_processes auto;
