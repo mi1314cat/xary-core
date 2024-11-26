@@ -1,10 +1,12 @@
 # xray-core一键脚本
 ## vless+ws
-```bash
-bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/lsvless.sh)
-```
+
 ```bash
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/vless.sh)
+```
+### 无证书
+```bash
+bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/lsvless.sh)
 ```
 ## xrayS- vmess+ws和sock5
 ```bash
