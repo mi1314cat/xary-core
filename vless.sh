@@ -150,7 +150,7 @@ fi
 }
 
 nginx() {
-    
+    apt install -y nginx
     cat <<EOF >/etc/nginx/nginx.conf
 user www-data;
 worker_processes auto;
@@ -260,7 +260,7 @@ else
     echo "无效选择，退出脚本"
     exit 1
 fi
-
+ssl
 # 配置文件生成
 mkdir -p /etc/xrayls
 cat <<EOF > /etc/xrayls/config.json
@@ -316,7 +316,7 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable xrayls
 sudo systemctl restart xrayls || { echo "重启 xrayls 服务失败"; exit 1; }
-ssl
+
 nginx 
 # 保存信息到文件
 OUTPUT_DIR="/root/xrayls"
