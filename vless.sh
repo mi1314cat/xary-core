@@ -273,7 +273,8 @@ cat <<EOF > /etc/xrayls/config.json
     },
     "inbounds": [
         {
-            "port": ${PORT},
+            "listen": "127.0.0.1",
+            "port": 9999,
             "tag": "VLESS-WS",
             "protocol": "VLESS",
             "settings": {
