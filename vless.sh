@@ -186,13 +186,13 @@ http {
         ssl_prefer_server_ciphers off;
 
         location / {
-            proxy_pass https://pan.imcxx.com; # 伪装网址
-            proxy_ssl_server_name on;
+            proxy_pass https://pan.imcxx.com; #伪装网址
             proxy_redirect off;
+            proxy_ssl_server_name on;
             sub_filter_once off;
-            sub_filter "pan.imcxx.com" "example.com"; # 修复此处
+            sub_filter "pan.imcxx.com" $server_name;
             proxy_set_header Host "pan.imcxx.com";
-            proxy_set_header Referer "";
+            proxy_set_header Referer $http_referer;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header User-Agent $http_user_agent;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
