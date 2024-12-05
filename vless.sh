@@ -186,14 +186,20 @@ http {
         ssl_prefer_server_ciphers off;
 
         location / {
-            proxy_pass https://pan.imcxx.com;
-            proxy_redirect off;
-            sub_filter_once off;
-            sub_filter "pan.imcxx.com" \$server_name;  # 替换为当前服务器的域名
-            proxy_set_header Host \$host;  # 使用当前请求的主机名
-            proxy_set_header X-Real-IP \$remote_addr;  # 使用客户端的真实 IP
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;  # 使用代理链的 IP
-        }
+        proxy_pass https://pan.imcxx.com; #伪装网址
+        proxy_ssl_server_name on;
+        proxy_redirect off;
+        sub_filter_once off;
+        sub_filter "pan.imcxx.com" $server_name;
+        proxy_set_header Host "pan.imcxx.com";
+        proxy_set_header Referer $http_referer;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header User-Agent $http_user_agent;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Accept-Encoding "";
+        proxy_set_header Accept-Language "zh-CN";
+    }
 
         location ${WS_PATH} {
             proxy_redirect off;
