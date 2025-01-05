@@ -30,9 +30,9 @@ bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/multi
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/FranzKafkaYu/x-ui/master/install.sh)
 ```
-### docker Marzban
+### 3x-ui
 ```bash
-sudo bash -c "$(curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban.sh)" @ install
+bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
 ```
 ## reality一键脚本
 
