@@ -478,7 +478,8 @@ EOF
     echo "服务器地址：${PUBLIC_IP}"
     echo "端口：${PORT}"
     echo "UUID：${UUID}"
-    echo "WS 路径：${WS_PATH}"
+    echo "vless WS 路径：${WS_PATH}"
+    echo "vmess WS 路径：${WS_PATH1}"
     echo "配置文件已保存到：/etc/xrayls/config.json"
 } > "$OUTPUT_DIR/install_info.txt"
 
