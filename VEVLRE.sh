@@ -459,7 +459,7 @@ mkdir -p "$OUTPUT_DIR"
 cat << EOF > /root/xrayls/clash-meta.yaml
 - name: Reality
   port:  $port
-  server: "$IP"
+  server: "$IP_CHOICE"
   type: vless
   network: tcp
   udp: true
