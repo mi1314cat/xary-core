@@ -40,7 +40,17 @@ print_error() {
 generate_uuid() {
     cat /proc/sys/kernel/random/uuid
 }
-
+# 生成端口的函数
+generate_port() {
+    local protocol="$1"
+    while :; do
+        port=$((RANDOM % 10001 + 10000))
+        read -p "请为 ${protocol} 输入监听端口(默认为随机生成): " user_input
+        port=${user_input:-$port}
+        ss -tuln | grep -q ":$port\b" || { echo "$port"; return $port; }
+        echo "端口 $port 被占用，请输入其他端口"
+    done
+}
 # 随机生成 WS 路径
 generate_ws_path() {
     echo "/$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 10)"
