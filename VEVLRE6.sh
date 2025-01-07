@@ -269,7 +269,6 @@ random_website() {
         "fandom.com"
         "tidal.com"
         "zoro.to"
-        "pixiv.co.jp"
         "mora.jp"
         "j-wave.co.jp"
         "booth.pm"
@@ -279,7 +278,7 @@ random_website() {
         "itunes.apple.com"
         "download-installer.cdn.mozilla.net"
         "images-na.ssl-images-amazon.com"
-	    "www.google-analytics.com"
+	"www.google-analytics.com"
         "dl.google.com"
     )
 
