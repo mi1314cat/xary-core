@@ -227,6 +227,14 @@ http {
             proxy_set_header Connection "upgrade";
             proxy_set_header Host \$host;
         }
+        location ${WS_PATH2} {
+        proxy_request_buffering      off;
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:9997;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+}
     }
 }
 EOF
@@ -313,11 +321,7 @@ getkey() {
     echo "$private_key" > /usr/local/etc/xray/privatekey
     echo "$public_key" > /usr/local/etc/xray/publickey
 
-    # 输出密钥
-    KEY=$(cat /usr/local/etc/xray/key)
-    print_blue "$KEY"
-
-    echo ""
+   
 }
 getkey
 # 提示输入监听端口号
@@ -328,6 +332,7 @@ port=$(generate_port "reality")
 UUID=$(generate_uuid)
 WS_PATH=$(generate_ws_path)
 WS_PATH1=$(generate_ws_path)
+WS_PATH2=$(generate_ws_path)
 
 
 
@@ -403,6 +408,35 @@ cat <<EOF > /etc/xrayls/config.json
                 }
             }
         },
+        
+        {
+            "listen": "127.0.0.1",
+            "port": 9997,
+            "protocol": "vless",
+            "settings": {
+                "decryption": "none",
+                "clients": [
+                    {
+                        "id": "${UUID}"
+                    }
+                ]
+            },
+            "streamSettings": {
+                "network": "xhttp",
+                "xhttpSettings": {
+                    "path": "${WS_PATH2}"
+                }
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                    "http",
+                    "tls",
+                    "quic"
+                ]
+            },
+            "tag": "in1"
+        },
         {
           "listen": "0.0.0.0",
           "port": $port,
@@ -414,7 +448,13 @@ cat <<EOF > /etc/xrayls/config.json
                       "flow": "xtls-rprx-vision"
                   }
               ],
-              "decryption": "none"
+              "decryption": "none",
+              "fallbacks": [
+          { 
+            
+            "dest": 9997
+          }
+        ]
           },
           "streamSettings": {
               "network": "tcp",
@@ -453,9 +493,9 @@ sudo systemctl restart xrayls || { echo "重启 xrayls 服务失败"; exit 1; }
 
 
 # 保存信息到文件
-OUTPUT_DIR="/root/xrayls"
+OUTPUT_DIR="/root/catmi/xrayls"
 mkdir -p "$OUTPUT_DIR"
-cat << EOF > /root/xrayls/clash-meta.yaml
+cat << EOF > /root/catmi/xrayls/clash-meta.yaml
 - name: Reality
   port:  $port
   server: "$PUBLIC_IP"
@@ -472,6 +512,28 @@ cat << EOF > /root/xrayls/clash-meta.yaml
   flow: xtls-rprx-vision
   client-fingerprint: chrome
 EOF
+cat << EOF > /root/catmi/xrayls/xhttp.json
+{
+    "downloadSettings": {
+      "address": "$PUBLIC_IP", 
+      "port": $port, 
+      "network": "xhttp", 
+      "xhttpSettings": {
+        "path": "${WS_PATH2}", 
+        "mode": "auto"
+      },
+      "security": "reality", 
+      "realitySettings":  {
+        "serverName": "$dest_server",
+        "fingerprint": "chrome",
+        "show": false,
+        "publicKey": "$(cat /usr/local/etc/xray/publickey)",
+        "shortId": " $short_id",
+        "spiderX": ""
+      }
+    }
+  }
+EOF
 {
     echo "xray 安装完成！"
     echo "服务器地址：${PUBLIC_IP}"
@@ -479,6 +541,7 @@ EOF
     echo "UUID：${UUID}"
     echo "vless WS 路径：${WS_PATH}"
     echo "vmess WS 路径：${WS_PATH1}"
+    echo "xhttp 路径：${WS_PATH2}"
     echo "配置文件已保存到：/etc/xrayls/config.json"
 } > "$OUTPUT_DIR/install_info.txt"
 
@@ -486,7 +549,6 @@ print_info "xray 安装完成！"
 print_info "服务器地址：${PUBLIC_IP}"
 print_info "端口：${PORT}"
 print_info "UUID：${UUID}"
-print_info "WS 路径：${WS_PATH}"
 print_info "配置文件已保存到：/etc/xrayls/config.json"
 
 sudo systemctl status xrayls
