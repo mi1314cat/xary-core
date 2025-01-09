@@ -528,7 +528,7 @@ cat << EOF > /root/catmi/xrayls/xhttp.json
         "fingerprint": "chrome",
         "show": false,
         "publicKey": "$(cat /usr/local/etc/xray/publickey)",
-        "shortId": " $short_id",
+        "shortId": "$short_id",
         "spiderX": ""
       }
     }
