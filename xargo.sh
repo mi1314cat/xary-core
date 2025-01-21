@@ -69,25 +69,9 @@ generate_port() {
 generate_ws_path() {
     echo "/$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 10)"
 }
-checkStatus() {
-    [[ -z $(cloudflared -help 2>/dev/null) ]] && cloudflaredStatus="未安装"
-    [[ -n $(cloudflared -help 2>/dev/null) ]] && cloudflaredStatus="已安装"
-    [[ -f /root/.cloudflared/cert.pem ]] && loginStatus="已登录"
-    [[ ! -f /root/.cloudflared/cert.pem ]] && loginStatus="未登录"
-}
-
-archAffix() {
-    case "$(uname -m)" in
-        i686 | i386) echo '386' ;;
-        x86_64 | amd64) echo 'amd64' ;;
-        armv5tel | arm6l | armv7 | armv7l) echo 'arm' ;;
-        armv8 | arm64 | aarch64) echo 'aarch64' ;;
-        *) red "不支持的CPU架构！" && exit 1 ;;
-    esac
-}
-installCloudFlared() {
+stallCloudFlared() {
     # 检查是否已安装 cloudflared
-    [[ $cloudflaredStatus == "已安装" ]] && red "检测到已安装并登录CloudFlare Argo Tunnel，无需重复安装！！" && exit 1
+   
     
     # 获取最新版本
     last_version=$(curl -Ls "https://api.github.com/repos/cloudflare/cloudflared/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
@@ -97,7 +81,7 @@ installCloudFlared() {
     fi
     
     # 判断 CPU 架构，适配 arm64
-    arch=$(archAffix)
+    arch=${CORE_ARCH}
     if [[ "$arch" == "aarch64" ]]; then
         arch="arm64"  # 统一使用 arm64
     fi
@@ -119,7 +103,7 @@ installCloudFlared() {
 
 
 loginCloudFlared(){
-    [[ $loginStatus == "已登录" ]] && red "检测到已登录CloudFlare Argo Tunnel，无需重复登录！！" && exit 1
+    
     cloudflared tunnel login
     checkStatus
     if [[ $cloudflaredStatus == "未登录" ]]; then
@@ -162,8 +146,7 @@ EOF
 }
 
 runTunnel() {
-    [[ $cloudflaredStatus == "未安装" ]] && red "检测到未安装CloudFlare Argo Tunnel客户端，无法执行操作！！！" && exit 1
-    [[ $loginStatus == "未登录" ]] && red "请登录CloudFlare Argo Tunnel客户端后再执行操作！！！" && exit 1
+   
     [[ -z $(type -P screen) ]] && ${PACKAGE_UPDATE[int]} && ${PACKAGE_INSTALL[int]} screen
     
    
@@ -172,8 +155,7 @@ runTunnel() {
     back2menu
 }
 argoCert() {
-    [[ $cloudflaredStatus == "未安装" ]] && red "检测到未安装CloudFlare Argo Tunnel客户端，无法执行操作！！！" && exit 1
-    [[ $loginStatus == "未登录" ]] && red "请登录CloudFlare Argo Tunnel客户端后再执行操作！！！" && exit 1
+    
     sed -n "1, 5p" /root/.cloudflared/cert.pem >>/root/private.key
     sed -n "6, 24p" /root/.cloudflared/cert.pem >>/root/cert.crt
     green "CloudFlare Argo Tunnel证书提取成功！"
