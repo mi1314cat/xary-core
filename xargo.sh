@@ -581,12 +581,12 @@ sudo systemctl status xrayls
 }
 menu() {
    mkdir -p /root/catmi
+   echo "执行 xray"
+    xray
     echo "执行 input_variables"
     input_variables
-    checkStatus
-    archAffix
-    echo "执行 installCloudFlared"
-    installCloudFlared
+    stallCloudFlared
+    
     echo "执行 loginCloudFlared"
     loginCloudFlared
     echo "执行 makeTunnel"
@@ -595,8 +595,7 @@ menu() {
     runTunnel
     echo "执行 argoCert"
     argoCert
-    echo "执行 xray"
-    xray
+    
     echo "执行 getkey"
     getkey
     echo "执行 xray_config"
