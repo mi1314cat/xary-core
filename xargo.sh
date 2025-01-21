@@ -91,16 +91,10 @@ generate_port() {
 generate_ws_path() {
     echo "/$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 10)"
 }
-checkStatus() {
-    [[ -z $(cloudflared -help 2>/dev/null) ]] && cloudflaredStatus="未安装"
-    [[ -n $(cloudflared -help 2>/dev/null) ]] && cloudflaredStatus="已安装"
-    [[ -f /root/.cloudflared/cert.pem ]] && loginStatus="已登录"
-    [[ ! -f /root/.cloudflared/cert.pem ]] && loginStatus="未登录"
-}
+
 mkdir -p /root/catmi
 installCloudFlared() {
-    # 检查是否已安装 cloudflared
-    [[ $cloudflaredStatus == "已安装" ]] && red "检测到已安装并登录CloudFlare Argo Tunnel，无需重复安装！！" && exit 1
+  
     
     # 获取最新版本
     last_version=$(curl -Ls "https://api.github.com/repos/cloudflare/cloudflared/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
@@ -132,7 +126,7 @@ installCloudFlared() {
 
 
 loginCloudFlared(){
-    [[ $loginStatus == "已登录" ]] && red "检测到已登录CloudFlare Argo Tunnel，无需重复登录！！" && exit 1
+   
     cloudflared tunnel login
     checkStatus
     if [[ $cloudflaredStatus == "未登录" ]]; then
@@ -175,8 +169,7 @@ EOF
 }
 
 runTunnel() {
-    [[ $cloudflaredStatus == "未安装" ]] && red "检测到未安装CloudFlare Argo Tunnel客户端，无法执行操作！！！" && exit 1
-    [[ $loginStatus == "未登录" ]] && red "请登录CloudFlare Argo Tunnel客户端后再执行操作！！！" && exit 1
+   
     [[ -z $(type -P screen) ]] && ${PACKAGE_UPDATE[int]} && ${PACKAGE_INSTALL[int]} screen
     
    
@@ -185,8 +178,7 @@ runTunnel() {
     back2menu
 }
 argoCert() {
-    [[ $cloudflaredStatus == "未安装" ]] && red "检测到未安装CloudFlare Argo Tunnel客户端，无法执行操作！！！" && exit 1
-    [[ $loginStatus == "未登录" ]] && red "请登录CloudFlare Argo Tunnel客户端后再执行操作！！！" && exit 1
+    
     sed -n "1, 5p" /root/.cloudflared/cert.pem >>/root/private.key
     sed -n "6, 24p" /root/.cloudflared/cert.pem >>/root/cert.crt
     green "CloudFlare Argo Tunnel证书提取成功！"
