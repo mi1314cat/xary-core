@@ -605,7 +605,7 @@ sudo systemctl status xrayls
 menu() {
     echo "执行 input_variables"
     input_variables
-    checkStatus
+  
     echo "执行 installCloudFlared"
     installCloudFlared
     echo "执行 loginCloudFlared"
