@@ -611,16 +611,27 @@ echo "${share_link}" > /root/catmi/xray.txt
 sudo systemctl status xrayls
 }
 menu() {
+    echo "执行 input_variables"
     input_variables
     checkStatus
+    echo "执行 installCloudFlared"
     installCloudFlared
+    echo "执行 loginCloudFlared"
     loginCloudFlared
+    echo "执行 makeTunnel"
     makeTunnel
+    echo "执行 runTunnel"
     runTunnel
+    echo "执行 argoCert"
     argoCert
+    echo "执行 xray"
     xray
+    echo "执行 getkey"
     getkey
+    echo "执行 xray_config"
     xray_config
+    echo "执行 nginx"
     nginx
+    echo "执行 OUTPUTyaml"
     OUTPUTyaml
 }
