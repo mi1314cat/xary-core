@@ -48,6 +48,19 @@ generate_ws_path() {
 SYSTEM_NAME=$(grep -i pretty_name /etc/os-release | cut -d \" -f2)
 CORE_ARCH=$(uname -m)
 
+# 介绍信息
+clear
+cat << "EOF"
+                       |\__/,|   (\\
+                     _.|o o  |_   ) )
+       -------------(((---(((-------------------
+                   catmi.vless.ws
+       -----------------------------------------
+EOF
+echo -e "${GREEN}System: ${PLAIN}${SYSTEM_NAME}"
+echo -e "${GREEN}Architecture: ${PLAIN}${CORE_ARCH}"
+echo -e "${GREEN}Version: ${PLAIN}1.0.0"
+echo -e "----------------------------------------"
 # 打印系统信息
 print_info "System: $SYSTEM_NAME"
 print_info "Architecture: $CORE_ARCH"
