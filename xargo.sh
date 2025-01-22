@@ -526,3 +526,4 @@ getkey
 xray_config
 nginx
 OUTPUTyaml
+cat /root/catmi/xray.txt
