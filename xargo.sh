@@ -113,7 +113,7 @@ create_tunnel() {
 
     cloudflared tunnel create "$tunnel_name"
     cloudflared tunnel route dns "$tunnel_name" "$tunnel_domain"
-
+    DOMAIN_LOWER=$tunnel_domain
     tunnel_uuid=$(cloudflared tunnel list | grep "$tunnel_name" | awk -F ' ' '{print $1}')
     read -p "请输入隧道 UUID（复制 ID 里面的内容）：" tunnel_uuid
 
