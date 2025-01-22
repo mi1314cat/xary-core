@@ -124,7 +124,7 @@ create_tunnel() {
 
     cat <<EOF > "$config_file"
 tunnel: $tunnelName
-credentials-file: /root/.cloudflared/$tunnelUUID.json
+credentials-file: /root/.cloudflared/$tunnel_uuid.json
 originRequest:
   connectTimeout: 30s
   noTLSVerify: true
