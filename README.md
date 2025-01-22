@@ -1,6 +1,11 @@
 # xray-core一键脚本
+## nginx+xray vless vmess xhttp
 ```bash
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/VEVLRE.sh)
+```
+# 安装nginx+xray+argo vless vmess
+```bash
+bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xargo.sh)
 ```
 ## vless+ws
 
