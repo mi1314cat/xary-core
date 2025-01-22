@@ -561,9 +561,9 @@ echo "${share_link}" > /root/catmi/xray.txt
 
 sudo systemctl status xrayls
 }
-menu() {
-   mkdir -p /root/catmi
-   xray
+
+mkdir -p /root/catmi
+xray
 input_variables
 install_package
 check_cloudflared_status
@@ -576,5 +576,3 @@ getkey
 xray_config
 nginx
 OUTPUTyaml
-}
-menu
