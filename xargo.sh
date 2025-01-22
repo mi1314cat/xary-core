@@ -20,6 +20,9 @@ if [[ $EUID -ne 0 ]]; then
     print_error "必须使用 root 用户运行此脚本！"
     exit 1
 fi
+apt install -y locales
+locale-gen zh_CN.UTF-8
+export LC_ALL=zh_CN.UTF-8
 
 # 随机生成 UUID
 generate_uuid() {
