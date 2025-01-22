@@ -130,7 +130,7 @@ originRequest:
   noTLSVerify: true
 ingress:
   - hostname: $tunnelDomain
-    service: $tunnelProtocol://localhost:$tunnelPort
+    service: https://localhost:$tunnelPort
   - service: http_status:404
 EOF
 
