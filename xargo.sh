@@ -1,47 +1,12 @@
 #!/bin/bash
 
-export LANG=en_US.UTF-8
+# 设置颜色代码
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+PLAIN='\033[0m'
 
-RED="\033[31m"
-GREEN="\033[32m"
-YELLOW="\033[33m"
-PLAIN="\033[0m"
-
-red(){
-    echo -e "\033[31m\033[01m$1\033[0m"
-}
-green(){
-    echo -e "\033[32m\033[01m$1\033[0m"
-}
-yellow(){
-    echo -e "\033[33m\033[01m$1\033[0m"
-}
-
-
-
-
-# 检查是否为root用户
-[[ $EUID -ne 0 ]] && echo -e "${RED}错误：${PLAIN} 必须使用root用户运行此脚本！\n" && exit 1
-
-# 系统信息
-SYSTEM_NAME=$(grep -i pretty_name /etc/os-release | cut -d \" -f2)
-CORE_ARCH=$(arch)
-
-# 介绍信息
-clear
-cat << "EOF"
-                       |\__/,|   (\\
-                     _.|o o  |_   ) )
-       -------------(((---(((-------------------
-                   catmi.argo
-       -----------------------------------------
-EOF
-echo -e "${GREEN}System: ${PLAIN}${SYSTEM_NAME}"
-echo -e "${GREEN}Architecture: ${PLAIN}${CORE_ARCH}"
-echo -e "${GREEN}Version: ${PLAIN}1.0.0"
-echo -e "----------------------------------------"
-
-# 打印带颜色的消息
+# 定义颜色打印函数
 print_info() {
     echo -e "${GREEN}[Info]${PLAIN} $1"
 }
@@ -49,6 +14,12 @@ print_info() {
 print_error() {
     echo -e "${RED}[Error]${PLAIN} $1"
 }
+
+# 检查是否为 root 用户
+if [[ $EUID -ne 0 ]]; then
+    print_error "必须使用 root 用户运行此脚本！"
+    exit 1
+fi
 
 # 随机生成 UUID
 generate_uuid() {
@@ -69,103 +40,114 @@ generate_port() {
 generate_ws_path() {
     echo "/$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 10)"
 }
-stallCloudFlared() {
-    # 检查是否已安装 cloudflared
-   
-    
-    # 获取最新版本
+
+# 系统信息
+SYSTEM_NAME=$(grep -i pretty_name /etc/os-release | cut -d \" -f2)
+CORE_ARCH=$(uname -m)
+
+# 打印系统信息
+print_info "System: $SYSTEM_NAME"
+print_info "Architecture: $CORE_ARCH"
+
+# 定义安装函数
+install_package() {
+    local package_name="$1"
+    if ! dpkg -s "$package_name" >/dev/null 2>&1; then
+        apt-get update -y
+        apt-get install -y "$package_name"
+    fi
+}
+
+# 定义检查 Cloudflared 安装状态函数
+check_cloudflared_status() {
+    if cloudflared --version >/dev/null 2>&1; then
+        return 0  # 已安装
+    else
+        return 1  # 未安装
+    fi
+}
+
+# 定义安装 Cloudflared 函数
+install_cloudflared() {
+    local last_version
     last_version=$(curl -Ls "https://api.github.com/repos/cloudflare/cloudflared/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    if [[ -z $last_version ]]; then
-    	red "检测 cloudflared 版本失败，可能是超出 Github API 限制，请稍后再试"
-	exit 1
+
+    if [[ -z "$last_version" ]]; then
+        print_error "检测 Cloudflared 版本失败，可能是超出 Github API 限制，请稍后再试"
+        exit 1
     fi
-    
-    # 判断 CPU 架构，适配 arm64
-    arch=${CORE_ARCH}
+
+    local arch="$CORE_ARCH"
     if [[ "$arch" == "aarch64" ]]; then
-        arch="arm64"  # 统一使用 arm64
+        arch="arm64"
     fi
 
-    # 下载 Cloudflared 二进制文件
-    wget -N --no-check-certificate https://github.com/cloudflare/cloudflared/releases/download/$last_version/cloudflared-linux-$arch -O /usr/local/bin/cloudflared
+    wget -N --no-check-certificate "https://github.com/cloudflare/cloudflared/releases/download/$last_version/cloudflared-linux-$arch" -O /usr/local/bin/cloudflared
     chmod +x /usr/local/bin/cloudflared
-    checkStatus
-    
-    # 检查安装状态
-    if [[ $cloudflaredStatus == "已安装" ]]; then
-    	green "CloudFlare Argo Tunnel 已安装成功！"
-    	back2menu
-    else
-        red "CloudFlare Argo Tunnel 安装失败！"
-        back2menu
-    fi
+
+    print_info "Cloudflared 安装成功！"
 }
 
-
-loginCloudFlared(){
-    
+# 定义登录 Cloudflared 函数
+login_cloudflared() {
     cloudflared tunnel login
-    checkStatus
-    if [[ $cloudflaredStatus == "未登录" ]]; then
-        red "登录CloudFlare Argo Tunnel账户失败！！"
-        back2menu
+    if [[ $? -eq 0 ]]; then
+        print_info "Cloudflared 登录成功！"
     else
-        green "登录CloudFlare Argo Tunnel账户成功！！"
-        back2menu
+        print_error "Cloudflared 登录失败！"
+        exit 1
     fi
 }
-makeTunnel() {
-    read -rp "请设置隧道名称：" tunnelName
-    cloudflared tunnel create $tunnelName
-    read -rp "请设置隧道域名：" tunnelDomain
-    cloudflared tunnel route dns $tunnelName $tunnelDomain
-    DOMAIN_LOWER=$tunnelDomain
-    cloudflared tunnel list
-    # 感谢yuuki410在其分支中提取隧道UUID的代码
-    # Source: https://github.com/yuuki410/argo-tunnel-script
-    tunnelUUID=$( $(cloudflared tunnel list | grep $tunnelName) = /[0-9a-f\-]+/)
-    read -p "请输入隧道UUID（复制ID里面的内容）：" tunnelUUID
-    read -p "输入传输协议（默认http）：" tunnelProtocol
-    [[ -z $tunnelProtocol ]] && tunnelProtocol="http"
-    read -p "输入反代端口：" tunnelPort
-    [[ -z $tunnelPort ]] && tunnelPort=${PORT}
-    tunnelFileName=CloudFlare
-	cat <<EOF > /root/catmi/$tunnelFileName.yml
-tunnel: $tunnelName
-credentials-file: /root/.cloudflared/$tunnelUUID.json
+
+# 定义创建隧道函数
+create_tunnel() {
+    local tunnel_name="$1"
+    local tunnel_domain="$2"
+    local tunnel_uuid
+
+    read -p "请设置隧道名称：" tunnel_name
+    read -p "请设置隧道域名：" tunnel_domain
+
+    cloudflared tunnel create "$tunnel_name"
+    cloudflared tunnel route dns "$tunnel_name" "$tunnel_domain"
+
+    tunnel_uuid=$(cloudflared tunnel list | grep "$tunnel_name" | awk -F ' ' '{print $1}')
+    read -p "请输入隧道 UUID（复制 ID 里面的内容）：" tunnel_uuid
+
+    local tunnel_file_name="CloudFlare"
+    local config_file="/root/catmi/$tunnel_file_name.yml"
+    mkdir -p /root/catmi
+
+    cat <<EOF > "$config_file"
+tunnel: $tunnel_name
+credentials-file: /root/.cloudflared/$tunnel_uuid.json
 originRequest:
   connectTimeout: 30s
   noTLSVerify: true
 ingress:
-  - hostname: $tunnelDomain
-    service: $tunnelProtocol://localhost:$tunnelPort
-  - service: http_status:404
+  - hostname: $tunnel_domain
+    service: http://localhost:80
 EOF
-    green "配置文件已保存至 /root/catmi/$tunnelFileName.yml"
-    back2menu
+
+    print_info "配置文件已保存至 $config_file"
 }
 
-runTunnel() {
-   
-    [[ -z $(type -P screen) ]] && ${PACKAGE_UPDATE[int]} && ${PACKAGE_INSTALL[int]} screen
-    
-   
-    screen -USdm CloudFlare cloudflared tunnel --config /root/catmi/$tunnelFileName.yml run
-    green "隧道已运行成功，请等待1-3分钟启动并解析完毕"
-    back2menu
+# 定义运行隧道函数
+run_tunnel() {
+    install_package screen
+    screen -dmS CloudFlare cloudflared tunnel --config /root/catmi/CloudFlare.yml run
+    print_info "隧道已运行成功，请等待1-3分钟启动并解析完毕"
 }
-argoCert() {
-    
-    sed -n "1, 5p" /root/.cloudflared/cert.pem >>/root/private.key
-    sed -n "6, 24p" /root/.cloudflared/cert.pem >>/root/cert.crt
-    green "CloudFlare Argo Tunnel证书提取成功！"
-    yellow "证书crt路径如下：/root/catmi/cert.crt"
-    yellow "私钥key路径如下：/root/catmi/private.key"
-    green "使用证书提示："
-    yellow "1. 当前证书仅限于CF Argo Tunnel隧道授权过的域名使用"
-    yellow "2. 在需要使用证书的服务使用Argo Tunnel的域名，必须使用其证书"
-    back2menu
+
+# 定义提取 Argo 证书函数
+extract_argo_cert() {
+    sed -n '1,5p' /root/.cloudflared/cert.pem > /root/private.key
+    sed -n '6,24p' /root/.cloudflared/cert.pem > /root/cert.crt
+    print_info "Argo 证书提取成功！"
+    print_info "证书路径：/root/cert.crt"
+    print_info "私钥路径：/root/private.key"
 }
+
 nginx() {
     apt install -y nginx
     cat << EOF > /etc/nginx/nginx.conf
@@ -581,27 +563,17 @@ sudo systemctl status xrayls
 }
 menu() {
    mkdir -p /root/catmi
-   echo "执行 xray"
-    xray
-    echo "执行 input_variables"
-    input_variables
-    stallCloudFlared
-    
-    echo "执行 loginCloudFlared"
-    loginCloudFlared
-    echo "执行 makeTunnel"
-    makeTunnel
-    echo "执行 runTunnel"
-    runTunnel
-    echo "执行 argoCert"
-    argoCert
-    
-    echo "执行 getkey"
-    getkey
-    echo "执行 xray_config"
-    xray_config
-    echo "执行 nginx"
-    nginx
-    echo "执行 OUTPUTyaml"
-    OUTPUTyaml
+   xray
+input_variables
+install_package
+check_cloudflared_status
+install_cloudflared
+login_cloudflared
+create_tunnel
+run_tunnel
+extract_argo_cert
+getkey
+xray_config
+nginx
+OUTPUTyaml
 }
