@@ -123,13 +123,13 @@ create_tunnel() {
     mkdir -p /root/catmi
 
     cat <<EOF > "$config_file"
-tunnel: $tunnelName
+tunnel: $tunnel_name
 credentials-file: /root/.cloudflared/$tunnel_uuid.json
 originRequest:
   connectTimeout: 30s
   noTLSVerify: true
 ingress:
-  - hostname: $tunnelDomain
+  - hostname: $tunnel_domain
     service: https://localhost:$tunnelPort
   - service: http_status:404
 EOF
