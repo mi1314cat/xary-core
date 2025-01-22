@@ -119,17 +119,19 @@ create_tunnel() {
 
     local tunnel_file_name="CloudFlare"
     local config_file="/root/catmi/$tunnel_file_name.yml"
+    tunnelPort=${PORT}
     mkdir -p /root/catmi
 
     cat <<EOF > "$config_file"
-tunnel: $tunnel_name
-credentials-file: /root/.cloudflared/$tunnel_uuid.json
+tunnel: $tunnelName
+credentials-file: /root/.cloudflared/$tunnelUUID.json
 originRequest:
   connectTimeout: 30s
   noTLSVerify: true
 ingress:
-  - hostname: $tunnel_domain
-    service: http://localhost:80
+  - hostname: $tunnelDomain
+    service: $tunnelProtocol://localhost:$tunnelPort
+  - service: http_status:404
 EOF
 
     print_info "配置文件已保存至 $config_file"
