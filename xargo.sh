@@ -577,3 +577,4 @@ xray_config
 nginx
 OUTPUTyaml
 }
+menu
