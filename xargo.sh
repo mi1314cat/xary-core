@@ -144,11 +144,11 @@ run_tunnel() {
 
 # 定义提取 Argo 证书函数
 extract_argo_cert() {
-    sed -n '1,5p' /root/.cloudflared/cert.pem > /root/private.key
-    sed -n '6,24p' /root/.cloudflared/cert.pem > /root/cert.crt
+    sed -n '1,5p' /root/.cloudflared/cert.pem > /root/catmi/private.key
+    sed -n '6,24p' /root/.cloudflared/cert.pem > /root/catmi/cert.crt
     print_info "Argo 证书提取成功！"
-    print_info "证书路径：/root/cert.crt"
-    print_info "私钥路径：/root/private.key"
+    print_info "证书路径：/root/catmi/cert.crt"
+    print_info "私钥路径：/root/catmi/private.key"
 }
 
 nginx() {
