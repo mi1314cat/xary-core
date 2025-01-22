@@ -177,7 +177,7 @@ http {
     gzip on;
 
     server {
-        listen $VALUE${PORT} ssl http2;
+        listen $VALUE${PORT} ssl;
         server_name ${DOMAIN_LOWER};
 
         ssl_certificate       "/root/catmi/cert.crt";
@@ -221,14 +221,7 @@ http {
             proxy_set_header Connection "upgrade";
             proxy_set_header Host \$host;
         }
-        location ${WS_PATH2} {
-        proxy_request_buffering      off;
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:9997;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-}
+        
     }
 }
 EOF
@@ -329,7 +322,7 @@ port=$(generate_port "reality")
 UUID=$(generate_uuid)
 WS_PATH=$(generate_ws_path)
 WS_PATH1=$(generate_ws_path)
-WS_PATH2=$(generate_ws_path)
+
 
 
 
@@ -414,34 +407,7 @@ cat <<EOF > /etc/xrayls/config.json
             }
         },
         
-        {
-            "listen": "127.0.0.1",
-            "port": 9997,
-            "protocol": "vless",
-            "settings": {
-                "decryption": "none",
-                "clients": [
-                    {
-                        "id": "${UUID}"
-                    }
-                ]
-            },
-            "streamSettings": {
-                "network": "xhttp",
-                "xhttpSettings": {
-                    "path": "${WS_PATH2}"
-                }
-            },
-            "sniffing": {
-                "enabled": true,
-                "destOverride": [
-                    "http",
-                    "tls",
-                    "quic"
-                ]
-            },
-            "tag": "in1"
-        },
+      
         {
           "listen": "0.0.0.0",
           "port": $port,
@@ -517,28 +483,7 @@ cat << EOF > /root/catmi/xrayls/clash-meta.yaml
   flow: xtls-rprx-vision
   client-fingerprint: chrome
 EOF
-cat << EOF > /root/catmi/xrayls/xhttp.json
-{
-    "downloadSettings": {
-      "address": "$PUBLIC_IP", 
-      "port": $port, 
-      "network": "xhttp", 
-      "xhttpSettings": {
-        "path": "${WS_PATH2}", 
-        "mode": "auto"
-      },
-      "security": "reality", 
-      "realitySettings":  {
-        "serverName": "$dest_server",
-        "fingerprint": "chrome",
-        "show": false,
-        "publicKey": "$(cat /usr/local/etc/xray/publickey)",
-        "shortId": "$short_id",
-        "spiderX": ""
-      }
-    }
-  }
-EOF
+
 {
     echo "xray 安装完成！"
     echo "服务器地址：${PUBLIC_IP}"
@@ -546,7 +491,7 @@ EOF
     echo "UUID：${UUID}"
     echo "vless WS 路径：${WS_PATH}"
     echo "vmess WS 路径：${WS_PATH1}"
-    echo "xhttp 路径：${WS_PATH2}"
+    
     echo "配置文件已保存到：/etc/xrayls/config.json"
 } > "$OUTPUT_DIR/install_info.txt"
 
@@ -560,7 +505,7 @@ share_link="
 vless://$UUID@${PUBLIC_IP}:$port?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$dest_server&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=$short_id&type=tcp&headerType=none#Reality
 vless://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&allowInsecure=1&type=ws&host=$DOMAIN_LOWER&path=${WS_PATH}#vless-ws-argo
 vmess://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&allowInsecure=1&type=ws&host=$DOMAIN_LOWER&path=${WS_PATH1}#vmess-ws-argo
-vless://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&type=xhttp&host=$DOMAIN_LOWER&path=${WS_PATH2}&mode=auto#vless-xhttp-argo
+
 "
 echo "${share_link}" > /root/catmi/xray.txt
 
