@@ -509,23 +509,23 @@ sudo systemctl restart xrayls || { echo "重启 xrayls 服务失败"; exit 1; }
 OUTPUT_DIR="/root/catmi/xrayls"
 mkdir -p "$OUTPUT_DIR"
 cat << EOF > /root/catmi/xrayls/clash-meta.yaml
-- name: Reality
-  port:  $port
-  server: "$PUBLIC_IP"
-  type: vless
-  network: tcp
-  udp: true
-  tls: true
-  servername: "$dest_server"
-  skip-cert-verify: true
-  reality-opts:
-    public-key: $(cat /usr/local/etc/xray/publickey)
-    short-id: $short_id
-  uuid: "$UUID"
-  flow: xtls-rprx-vision
-  client-fingerprint: chrome
-- {"name":"vmess-ws-tls","type":"vmess","server":"$DOMAIN_LOWER","port":443,"cipher":"auto","uuid":"$UUID","alterId":0,"tls":true,"network":"ws","ws-opts":{"path":"${WS_PATH1}","headers":{"Host":"$DOMAIN_LOWER"}},"servername":"$DOMAIN_LOWER"}
-- {"type":"vless","name":"vless-ws-tls","server":"$DOMAIN_LOWER","port":443,"uuid":"$UUID","tls":true,"skip-cert-verify":true,"network":"ws","ws-opts":{"headers":{"Host":"$DOMAIN_LOWER"},"path":"${WS_PATH}"},"servername":"$DOMAIN_LOWER"}  
+  - name: Reality
+    port:  $port
+    server: "$PUBLIC_IP"
+    type: vless
+    network: tcp
+    udp: true
+    tls: true
+    servername: "$dest_server"
+    skip-cert-verify: true
+    reality-opts:
+      public-key: $(cat /usr/local/etc/xray/publickey)
+      short-id: $short_id
+    uuid: "$UUID"
+    flow: xtls-rprx-vision
+    client-fingerprint: chrome
+  - {"name":"vmess-ws-tls","type":"vmess","server":"$DOMAIN_LOWER","port":443,"cipher":"auto","uuid":"$UUID","alterId":0,"tls":true,"network":"ws","ws-opts":{"path":"${WS_PATH1}","headers":{"Host":"$DOMAIN_LOWER"}},"servername":"$DOMAIN_LOWER"}
+  - {"type":"vless","name":"vless-ws-tls","server":"$DOMAIN_LOWER","port":443,"uuid":"$UUID","tls":true,"skip-cert-verify":true,"network":"ws","ws-opts":{"headers":{"Host":"$DOMAIN_LOWER"},"path":"${WS_PATH}"},"servername":"$DOMAIN_LOWER"}  
 EOF
 cat << EOF > /root/catmi/xrayls/xhttp.json
 {
