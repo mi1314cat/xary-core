@@ -524,8 +524,11 @@ cat << EOF > /root/catmi/xrayls/clash-meta.yaml
     uuid: "$UUID"
     flow: xtls-rprx-vision
     client-fingerprint: chrome
+    
   - {"name":"vmess-ws-tls","type":"vmess","server":"$DOMAIN_LOWER","port":443,"cipher":"auto","uuid":"$UUID","alterId":0,"tls":true,"network":"ws","ws-opts":{"path":"${WS_PATH1}","headers":{"Host":"$DOMAIN_LOWER"}},"servername":"$DOMAIN_LOWER"}
+  
   - {"type":"vless","name":"vless-ws-tls","server":"$DOMAIN_LOWER","port":443,"uuid":"$UUID","tls":true,"skip-cert-verify":true,"network":"ws","ws-opts":{"headers":{"Host":"$DOMAIN_LOWER"},"path":"${WS_PATH}"},"servername":"$DOMAIN_LOWER"}  
+
 EOF
 cat << EOF > /root/catmi/xrayls/xhttp.json
 {
