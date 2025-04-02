@@ -551,6 +551,25 @@ cat << EOF > /root/catmi/xrayls/xhttp.json
       }
     }
   }
+
+  
+  
+  {
+  "downloadSettings": {
+    "address": "$DOMAIN_LOWER", 
+    "port": 443, 
+    "network": "xhttp", 
+    "security": "tls", 
+    "tlsSettings": {
+      "serverName": "$DOMAIN_LOWER", 
+      "allowInsecure": false
+    }, 
+    "xhttpSettings": {
+      "path": "${WS_PATH2}", 
+      "mode": "auto"
+    }
+  }
+}
 EOF
 {
     echo "xray 安装完成！"
