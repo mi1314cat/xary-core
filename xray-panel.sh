@@ -45,7 +45,7 @@ xrayls 服务状态: ${xrayls_server_status_text}
         3) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/upxray.sh) ;;
         4) systemctl restart xrayls.service ;;
         5) [[ -f /root/catmi/xray.txt ]] && cat /root/catmi/xray.txt || echo "配置文件不存在" ;;
-        6) nano /root/catmi/xray.json && systemctl restart xrayls.service ;;  # 示例配置修改
+        6) clear ;;  # 示例配置修改
         7) systemctl status xrayls.service -l ;;
         *) echo -e "${RED}无效的选项 ${choice}${PLAIN}" ;;
     esac
