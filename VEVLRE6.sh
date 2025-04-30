@@ -183,7 +183,7 @@ http {
     gzip on;
 
     server {
-        listen [::]:${PORT} ssl;
+        listen $VALUE${PORT} ssl http2;
         server_name ${DOMAIN_LOWER};
 
         ssl_certificate       "${CERT_PATH}";
@@ -273,20 +273,21 @@ random_website() {
         "amd.com"
         "apple.com"
         "music.apple.com"
-        "amazon.com"
         "fandom.com"
         "tidal.com"
-        "zoro.to"
         "mora.jp"
-        "j-wave.co.jp"
         "booth.pm"
-        "ivi.tv"
         "leercapitulo.com"
-        "sky.com"
         "itunes.apple.com"
         "download-installer.cdn.mozilla.net"
         "images-na.ssl-images-amazon.com"
-	"www.google-analytics.com"
+        "swdist.apple.com"
+        "swcdn.apple.com"
+        "updates.cdn-apple.com"
+        "mensura.cdn-apple.com"
+        "osxapps.itunes.apple.com"
+        "aod.itunes.apple.com"
+        "www.google-analytics.com"
         "dl.google.com"
     )
 
@@ -342,16 +343,29 @@ PUBLIC_IP_V6=$(curl -s https://api64.ipify.org)
 echo "公网 IPv4 地址: $PUBLIC_IP_V4"
 echo "公网 IPv6 地址: $PUBLIC_IP_V6"
 
+# 获取公网 IP 地址
+PUBLIC_IP_V4=$(curl -s https://api.ipify.org)
+PUBLIC_IP_V6=$(curl -s https://api64.ipify.org)
+echo "公网 IPv4 地址: $PUBLIC_IP_V4"
+echo "公网 IPv6 地址: $PUBLIC_IP_V6"
 # 选择使用哪个公网 IP 地址
 echo "请选择要使用的公网 IP 地址:"
 echo "1. $PUBLIC_IP_V4"
 echo "2. $PUBLIC_IP_V6"
-read -p "请输入对应的数字选择: " IP_CHOICE
+read -p "请输入对应的数字选择 [默认1]: " IP_CHOICE
 
+# 如果没有输入（即回车），则默认选择1
+IP_CHOICE=${IP_CHOICE:-1}
+
+# 选择公网 IP 地址
 if [ "$IP_CHOICE" -eq 1 ]; then
     PUBLIC_IP=$PUBLIC_IP_V4
+    # 设置第二个变量为“空”
+    VALUE=""
 elif [ "$IP_CHOICE" -eq 2 ]; then
     PUBLIC_IP=$PUBLIC_IP_V6
+    # 设置第二个变量为 "[::]:"
+    VALUE="[::]:"
 else
     echo "无效选择，退出脚本"
     exit 1
@@ -496,21 +510,26 @@ sudo systemctl restart xrayls || { echo "重启 xrayls 服务失败"; exit 1; }
 OUTPUT_DIR="/root/catmi/xrayls"
 mkdir -p "$OUTPUT_DIR"
 cat << EOF > /root/catmi/xrayls/clash-meta.yaml
-- name: Reality
-  port:  $port
-  server: "$PUBLIC_IP"
-  type: vless
-  network: tcp
-  udp: true
-  tls: true
-  servername: "$dest_server"
-  skip-cert-verify: true
-  reality-opts:
-    public-key: $(cat /usr/local/etc/xray/publickey)
-    short-id: $short_id
-  uuid: "$UUID"
-  flow: xtls-rprx-vision
-  client-fingerprint: chrome
+  - name: Reality
+    port:  $port
+    server: "$PUBLIC_IP"
+    type: vless
+    network: tcp
+    udp: true
+    tls: true
+    servername: "$dest_server"
+    skip-cert-verify: true
+    reality-opts:
+      public-key: $(cat /usr/local/etc/xray/publickey)
+      short-id: $short_id
+    uuid: "$UUID"
+    flow: xtls-rprx-vision
+    client-fingerprint: chrome
+    
+  - {"name":"vmess-ws-tls","type":"vmess","server":"$DOMAIN_LOWER","port":443,"cipher":"auto","uuid":"$UUID","alterId":0,"tls":true,"network":"ws","ws-opts":{"path":"${WS_PATH1}","headers":{"Host":"$DOMAIN_LOWER"}},"servername":"$DOMAIN_LOWER"}
+  
+  - {"type":"vless","name":"vless-ws-tls","server":"$DOMAIN_LOWER","port":443,"uuid":"$UUID","tls":true,"skip-cert-verify":true,"network":"ws","ws-opts":{"headers":{"Host":"$DOMAIN_LOWER"},"path":"${WS_PATH}"},"servername":"$DOMAIN_LOWER"}  
+
 EOF
 cat << EOF > /root/catmi/xrayls/xhttp.json
 {
@@ -533,6 +552,25 @@ cat << EOF > /root/catmi/xrayls/xhttp.json
       }
     }
   }
+
+  
+  
+  {
+  "downloadSettings": {
+    "address": "$DOMAIN_LOWER", 
+    "port": 443, 
+    "network": "xhttp", 
+    "security": "tls", 
+    "tlsSettings": {
+      "serverName": "$DOMAIN_LOWER", 
+      "allowInsecure": false
+    }, 
+    "xhttpSettings": {
+      "path": "${WS_PATH2}", 
+      "mode": "auto"
+    }
+  }
+}
 EOF
 {
     echo "xray 安装完成！"
@@ -544,6 +582,14 @@ EOF
     echo "xhttp 路径：${WS_PATH2}"
     echo "配置文件已保存到：/etc/xrayls/config.json"
 } > "$OUTPUT_DIR/install_info.txt"
+# 生成分享链接
+share_link="
+vless://$UUID@${PUBLIC_IP}:$port?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$dest_server&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=$short_id&type=tcp&headerType=none#Reality
+vless://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&allowInsecure=1&type=ws&host=$DOMAIN_LOWER&path=${WS_PATH}#vless-ws-tls
+vmess://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&allowInsecure=1&type=ws&host=$DOMAIN_LOWER&path=${WS_PATH1}#vmess-ws-tls
+vless://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&type=xhttp&host=$DOMAIN_LOWER&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
+"
+echo "${share_link}" > /root/catmi/xray.txt
 
 print_info "xray 安装完成！"
 print_info "服务器地址：${PUBLIC_IP}"
@@ -553,3 +599,4 @@ print_info "配置文件已保存到：/etc/xrayls/config.json"
 
 sudo systemctl status xrayls
 nginx 
+cat /root/catmi/xray.txt
