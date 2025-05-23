@@ -577,7 +577,7 @@ EOF
     echo "vmess WS 路径：${WS_PATH1}"
     echo "xhttp 路径：${WS_PATH2}"
     echo "配置文件已保存到：/etc/xrayls/config.json"
-} > "$OUTPUT_DIR/install_info.txt"
+} > "/root/catmi/install_info.txt"
 # 生成分享链接
 share_link="
 vless://$UUID@${PUBLIC_IP}:$port?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$dest_server&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=$short_id&type=tcp&headerType=none#Reality
