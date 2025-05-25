@@ -535,14 +535,16 @@ cat << EOF > /root/catmi/xrayls/clash-meta.yaml
       headers:
         Host: $DOMAIN_LOWER
     servername: $DOMAIN_LOWER
-  - type: vless
-    name: vless-ws-tls
+  - name: vless-ws-tls
+    type: vless
     server: $DOMAIN_LOWER
     port: 443
     uuid: $UUID
     tls: true
     skip-cert-verify: true
     network: ws
+    alterId: 0
+    cipher: auto
     ws-opts:
       headers:
         Host: $DOMAIN_LOWER
@@ -599,7 +601,7 @@ EOF
     echo "vless WS 路径：${WS_PATH}"
     echo "vmess WS 路径：${WS_PATH1}"
     echo "xhttp 路径：${WS_PATH2}"
-    echo "配置文件已保存到：/etc/xrayls/config.json"
+    
 } > "/root/catmi/install_info.txt"
 # 生成分享链接
 share_link="
@@ -610,11 +612,7 @@ vless://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&t
 "
 echo "${share_link}" > /root/catmi/xray.txt
 
-print_info "xray 安装完成！"
-print_info "服务器地址：${PUBLIC_IP}"
-print_info "端口：${PORT}"
-print_info "UUID：${UUID}"
-print_info "配置文件已保存到：/etc/xrayls/config.json"
+
 
 sudo systemctl status xrayls
 nginx 
