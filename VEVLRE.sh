@@ -342,8 +342,7 @@ WS_PATH2=$(generate_ws_path)
 # 获取公网 IP 地址
 PUBLIC_IP_V4=$(curl -s https://api.ipify.org)
 PUBLIC_IP_V6=$(curl -s https://api64.ipify.org)
-echo "公网 IPv4 地址: $PUBLIC_IP_V4"
-echo "公网 IPv6 地址: $PUBLIC_IP_V6"
+
 # 选择使用哪个公网 IP 地址
 echo "请选择要使用的公网 IP 地址:"
 echo "1. $PUBLIC_IP_V4"
@@ -358,10 +357,12 @@ if [ "$IP_CHOICE" -eq 1 ]; then
     PUBLIC_IP=$PUBLIC_IP_V4
     # 设置第二个变量为“空”
     VALUE=""
+    link_ip="$PUBLIC_IP"
 elif [ "$IP_CHOICE" -eq 2 ]; then
     PUBLIC_IP=$PUBLIC_IP_V6
     # 设置第二个变量为 "[::]:"
     VALUE="[::]:"
+    link_ip="[$PUBLIC_IP]"
 else
     echo "无效选择，退出脚本"
     exit 1
@@ -605,7 +606,7 @@ EOF
 } > "/root/catmi/install_info.txt"
 # 生成分享链接
 share_link="
-vless://$UUID@${PUBLIC_IP}:$port?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$dest_server&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=$short_id&type=tcp&headerType=none#Reality
+vless://$UUID@${link_ip}:$port?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$dest_server&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=$short_id&type=tcp&headerType=none#Reality
 vless://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&allowInsecure=1&type=ws&host=$DOMAIN_LOWER&path=${WS_PATH}#vless-ws-tls
 vmess://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&allowInsecure=1&type=ws&host=$DOMAIN_LOWER&path=${WS_PATH1}#vmess-ws-tls
 vless://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&type=xhttp&host=$DOMAIN_LOWER&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
