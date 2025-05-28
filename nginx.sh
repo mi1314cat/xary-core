@@ -162,10 +162,14 @@ fi
 # 保存私钥
 echo "$KEY_CONTENT" > "$KEY_PATH"
 echo "✅ 私钥已保存到 $KEY_PATH"
-
+apt install acl
+setfacl -m u:www-data:x /root
+setfacl -m u:www-data:x $CERT_DIR
+setfacl -m u:www-data:r $KEY_PATH
+setfacl -m u:www-data:r $CERT_PATH
 # 设置权限
-chmod 600 "$CERT_PATH" "$KEY_PATH"
-echo "🔐 权限已设置为 600"
+chmod 644 "$CERT_PATH" "$KEY_PATH"
+echo "🔐 权限已设置为 644"
 
 echo "🎉 所有操作完成！"
 }
