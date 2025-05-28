@@ -177,7 +177,7 @@ echo "🎉 所有操作完成！"
 
 nginxsl() {
     apt install -y nginx
-    Disguised=www.wikipedia.org
+    Disguised="www.wikipedia.org"
     cat << EOF > /etc/nginx/nginx.conf
 user www-data;
 worker_processes auto;
