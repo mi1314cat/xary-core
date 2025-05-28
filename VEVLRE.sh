@@ -55,7 +55,7 @@ generate_port() {
 generate_ws_path() {
     echo "/$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 10)"
 }
-ssl() {
+ssl_dns() {
     set -e
 
 # 提供操作选项供用户选择
@@ -367,7 +367,67 @@ else
     echo "无效选择，退出脚本"
     exit 1
 fi
-ssl
+
+ssl_sd(){
+CERT_DIR="/root/catmi"
+CERT_FILE="${CERT_DIR}/server.crt"
+KEY_FILE="${CERT_DIR}/server.key"
+
+# 创建目录
+mkdir -p "$CERT_DIR"
+
+# 提示输入证书
+echo "📄 请粘贴你的证书内容（以 -----BEGIN CERTIFICATE----- 开头），输入完后按 Ctrl+D："
+CERT_CONTENT=$(</dev/stdin)
+
+# 检查输入为空
+if [[ -z "$CERT_CONTENT" ]]; then
+  echo "❌ 证书内容不能为空！"
+  exit 1
+fi
+
+# 保存证书
+echo "$CERT_CONTENT" > "$CERT_FILE"
+echo "✅ 证书已保存到 $CERT_FILE"
+
+# 提示输入私钥
+echo "🔑 请粘贴你的私钥内容（以 -----BEGIN PRIVATE KEY----- 或 RSA 开头），输入完后按 Ctrl+D："
+KEY_CONTENT=$(</dev/stdin)
+
+# 检查输入为空
+if [[ -z "$KEY_CONTENT" ]]; then
+  echo "❌ 私钥内容不能为空！"
+  exit 1
+fi
+
+# 保存私钥
+echo "$KEY_CONTENT" > "$KEY_FILE"
+echo "✅ 私钥已保存到 $KEY_FILE"
+
+# 设置权限
+chmod 600 "$CERT_FILE" "$KEY_FILE"
+echo "🔐 权限已设置为 600"
+
+echo "✅ 所有操作完成！"
+}
+
+echo "请选择要申请证书的方式:"
+echo "1. 自动 DNS验证 "
+echo "2. 手动输入 "
+read -p "请输入对应的数字选择 [默认1]: " Certificate
+
+# 如果没有输入（即回车），则默认选择1
+Certificate=${Certificate:-1}
+
+# 选择请证书的方式
+if [ "$Certificate" -eq 1 ]; then
+    ssl_dns
+elif [ "$Certificate" -eq 2 ]; then
+    ssl_sd
+else
+    echo "无效选择，退出脚本"
+    exit 1
+fi
 # 配置文件生成
 mkdir -p /etc/xrayls
 cat <<EOF > /etc/xrayls/config.json
