@@ -82,7 +82,7 @@ if [ "$choice" -eq 1 ]; then
 
     # 更新系统并安装必要的依赖项
     echo "更新系统并安装依赖项..."
-    sudo apt update && sudo apt upgrade -y
+    sudo apt update 
     sudo apt install ufw -y
     sudo apt install -y curl socat git cron openssl
     ufw disable
