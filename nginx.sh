@@ -128,7 +128,7 @@ ssl_sd(){
 CERT_DIR="/root/catmi"
 CERT_PATH="${CERT_DIR}/server.crt"
 KEY_PATH="${CERT_DIR}/server.key"
-
+ufw disable
 # 创建目录
 mkdir -p "$CERT_DIR"
 
