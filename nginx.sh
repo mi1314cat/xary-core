@@ -131,6 +131,7 @@ KEY_FILE="${CERT_DIR}/server.key"
 
 # 创建目录
 mkdir -p "$CERT_DIR"
+read -p "请输入申请证书的域名: " DOMAIN_LOWER
 
 # 提示输入证书
 echo "📄 请粘贴你的证书内容（以 -----BEGIN CERTIFICATE----- 开头），输入完后按 Ctrl+D："
