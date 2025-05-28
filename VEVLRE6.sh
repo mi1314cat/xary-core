@@ -161,7 +161,7 @@ cat <<EOF > $INSTALL_DIR/config.json
     "inbounds": [
         {
             "listen": "127.0.0.1",
-            "port": 9999,
+            "port": 9998,
             "tag": "VLESS-WS",
             "protocol": "VLESS",
             "settings": {
@@ -182,7 +182,7 @@ cat <<EOF > $INSTALL_DIR/config.json
         },
         {
            "listen": "127.0.0.1",
-            "port": 9998,
+            "port": 9999,
             "tag": "VEESS-WS",
             "protocol": "vmess",
             "settings": {
