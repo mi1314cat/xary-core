@@ -177,6 +177,7 @@ echo "🎉 所有操作完成！"
 
 nginxsl() {
     apt install -y nginx
+    Disguised=www.wikipedia.org
     cat << EOF > /etc/nginx/nginx.conf
 user www-data;
 worker_processes auto;
@@ -212,12 +213,12 @@ http {
         ssl_prefer_server_ciphers off;
 
         location / {
-            proxy_pass https://pan.imcxx.com; #伪装网址
+            proxy_pass https://$Disguised; #伪装网址
             proxy_redirect off;
             proxy_ssl_server_name on;
             sub_filter_once off;
-            sub_filter "pan.imcxx.com" \$server_name;
-            proxy_set_header Host "pan.imcxx.com";
+            sub_filter "$Disguised" \$server_name;
+            proxy_set_header Host "$Disguised";
             proxy_set_header Referer \$http_referer;
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header User-Agent \$http_user_agent;
