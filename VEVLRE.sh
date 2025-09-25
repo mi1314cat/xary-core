@@ -91,16 +91,20 @@ getkey() {
 
     # 生成私钥
     key_output=$($INSTALL_DIR/xrayls x25519)
-    private_key=$(echo "$key_output" | awk '/PrivateKey/ {print $2}')
+    private_key=$(echo "$key_output" | awk -F': ' '/PrivateKey/ {print $2}')
+    password=$(echo "$key_output" | awk -F': ' '/Password/ {print $2}')
+     hash32=$(echo "$key_output" | awk -F': ' '/Hash32/ {print $2}')
 
-    if [[ -z "$private_key" ]]; then
-        echo "❌ 生成私钥失败"
-        return 1
-    fi
+# 显示
+echo "PrivateKey: $private_key"
+echo "Password:   $password"
+echo "Hash32:     $hash32"
 
-    # 保存私钥
-    echo "$private_key" > /usr/local/etc/xray/privatekey
-    echo "✅ 私钥已保存到 /usr/local/etc/xray/privatekey"
+# 可选：保存到文件
+
+echo "$private_key" > /usr/local/etc/xray/privatekey
+echo "$password" > /usr/local/etc/xray/password
+echo "$hash32" > /usr/local/etc/xray/hash32
 }
 
 getkey
@@ -309,7 +313,7 @@ cat << EOF > $INSTALL_DIR/clash-meta.yaml
     servername: $dest_server
     skip-cert-verify: true
     reality-opts:
-      public-key: $(cat /usr/local/etc/xray/publickey)
+      public-key: $(cat /usr/local/etc/xray/password)
       short-id: $short_id
     uuid: $UUID
     flow: xtls-rprx-vision
@@ -389,7 +393,7 @@ EOF
 
 # 生成分享链接
 share_link="
-vless://$UUID@${link_ip}:$port?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$dest_server&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=$short_id&type=tcp&headerType=none#Reality
+vless://$UUID@${link_ip}:$port?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$dest_server&fp=chrome&pbk=$(cat /usr/local/etc/xray/password)&sid=$short_id&type=tcp&headerType=none#Reality
 vless://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&allowInsecure=1&type=ws&host=$DOMAIN_LOWER&path=${WS_PATH1}#vless-ws-tls
 vmess://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&allowInsecure=1&type=ws&host=$DOMAIN_LOWER&path=${WS_PATH}#vmess-ws-tls
 vless://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&type=xhttp&host=$DOMAIN_LOWER&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
