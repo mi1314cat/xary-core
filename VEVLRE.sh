@@ -86,7 +86,7 @@ dest_server=$(grep '^dest_server' /root/catmi/dest_server.txt | sed 's/.*[:：]/
 short_id=$(dd bs=4 count=2 if=/dev/urandom | xxd -p -c 8)
 
 getkey() {
-    echo "正在生成 Reality 私钥和公钥，请妥善保管..."
+    echo "正在生成 Reality 私钥，请妥善保管..."
     mkdir -p /usr/local/etc/xray
 
     # 生成私钥
@@ -98,21 +98,11 @@ getkey() {
         return 1
     fi
 
-    # 根据私钥推导公钥
-    public_key=$($INSTALL_DIR/xrayls x25519 -i "$private_key" | awk '/PublicKey/ {print $2}')
-
-    if [[ -z "$public_key" ]]; then
-        echo "❌ 生成公钥失败"
-        return 1
-    fi
-
-    # 保存到文件
+    # 保存私钥
     echo "$private_key" > /usr/local/etc/xray/privatekey
-    echo "$public_key"  > /usr/local/etc/xray/publickey
-
     echo "✅ 私钥已保存到 /usr/local/etc/xray/privatekey"
-    echo "✅ 公钥已保存到 /usr/local/etc/xray/publickey"
 }
+
 getkey
 # 提示输入监听端口号
 read -p "请输入 Vless 监听端口 (默认为 443): " PORT
