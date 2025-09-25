@@ -86,24 +86,32 @@ dest_server=$(grep '^dest_server' /root/catmi/dest_server.txt | sed 's/.*[:：]/
 short_id=$(dd bs=4 count=2 if=/dev/urandom | xxd -p -c 8)
 
 getkey() {
-    echo "正在生成私钥和公钥，请妥善保管好..."
+    echo "正在生成 Reality 私钥和公钥，请妥善保管..."
     mkdir -p /usr/local/etc/xray
 
-    # 生成密钥并保存到文件
-    $INSTALL_DIR/xrayls x25519 > /usr/local/etc/xray/key || {
-        print_error "生成密钥失败"
+    # 生成私钥
+    key_output=$($INSTALL_DIR/xrayls x25519)
+    private_key=$(echo "$key_output" | awk '/PrivateKey/ {print $2}')
+
+    if [[ -z "$private_key" ]]; then
+        echo "❌ 生成私钥失败"
         return 1
-    }
+    fi
 
-    # 提取私钥和公钥
-    private_key=$(awk 'NR==1 {print $3}' /usr/local/etc/xray/key)
-    public_key=$(awk 'NR==2 {print $3}' /usr/local/etc/xray/key)
+    # 根据私钥推导公钥
+    public_key=$($INSTALL_DIR/xrayls x25519 -i "$private_key" | awk '/PublicKey/ {print $2}')
 
-    # 保存密钥到文件
+    if [[ -z "$public_key" ]]; then
+        echo "❌ 生成公钥失败"
+        return 1
+    fi
+
+    # 保存到文件
     echo "$private_key" > /usr/local/etc/xray/privatekey
-    echo "$public_key" > /usr/local/etc/xray/publickey
+    echo "$public_key"  > /usr/local/etc/xray/publickey
 
-   
+    echo "✅ 私钥已保存到 /usr/local/etc/xray/privatekey"
+    echo "✅ 公钥已保存到 /usr/local/etc/xray/publickey"
 }
 getkey
 # 提示输入监听端口号
