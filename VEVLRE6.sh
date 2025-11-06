@@ -180,6 +180,9 @@ getkey
 # 生成短 id
 short_id=$(dd if=/dev/urandom bs=4 count=2 2>/dev/null | xxd -p -c 8)
 
+
+read -p "请输入 Vless 监听端口 (默认为 443): " NPORT
+NPORT=${PORT:-443}
 # 生成端口与路径
 PORT=$(generate_port "Reality (外部 TCP)")
 WS_PATH1=$(generate_ws_path)
@@ -370,7 +373,8 @@ print_info "xrayls 服务已启动并正在运行"
     echo "xray 安装完成！"
     echo "服务器地址：${PUBLIC_IP}"
     echo "IP_CHOICE：${IP_CHOICE}"
-    echo "端口：${PORT}"
+    echo "端口：${NPORT}"
+    echo "reality端口：${PORT}"
     echo "UUID：${UUID}"
     echo "vless WS 路径：${WS_PATH1}"
     echo "vmess WS 路径：${WS_PATH}"
