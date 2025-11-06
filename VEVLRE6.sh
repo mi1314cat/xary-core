@@ -9,9 +9,14 @@ PLAIN="\033[0m"
 # 检查是否为root用户
 [[ $EUID -ne 0 ]] && echo -e "${RED}错误：${PLAIN} 必须使用root用户运行此脚本！\n" && exit 1
 
+# 简单依赖检查
+for cmd in curl ss awk xxd systemctl grep sed tr dd; do
+    command -v $cmd >/dev/null 2>&1 || { echo -e "${RED}错误：${PLAIN} 需要命令 '$cmd'，请先安装它。"; exit 1; }
+done
+
 # 系统信息
-SYSTEM_NAME=$(grep -i pretty_name /etc/os-release | cut -d \" -f2)
-CORE_ARCH=$(arch)
+SYSTEM_NAME=$(grep -i pretty_name /etc/os-release 2>/dev/null | cut -d '"' -f2 || echo "Unknown")
+CORE_ARCH=$(arch 2>/dev/null || echo "unknown")
 
 # 介绍信息
 clear
@@ -24,7 +29,7 @@ cat << "EOF"
 EOF
 echo -e "${GREEN}System: ${PLAIN}${SYSTEM_NAME}"
 echo -e "${GREEN}Architecture: ${PLAIN}${CORE_ARCH}"
-echo -e "${GREEN}Version: ${PLAIN}1.0.0"
+echo -e "${GREEN}Version: ${PLAIN}1.0.1-fixed"
 echo -e "----------------------------------------"
 
 # 打印带颜色的消息
@@ -40,32 +45,55 @@ print_error() {
 generate_uuid() {
     cat /proc/sys/kernel/random/uuid
 }
-# 生成端口的函数
+
+# 生成端口的函数（返回端口通过 echo）
 generate_port() {
     local protocol="$1"
     while :; do
-        port=$((RANDOM % 10001 + 10000))
-        read -p "请为 ${protocol} 输入监听端口(默认为随机生成): " user_input
-        port=${user_input:-$port}
-        ss -tuln | grep -q ":$port\b" || { echo "$port"; return $port; }
-        echo "端口 $port 被占用，请输入其他端口"
+        candidate=$((RANDOM % 10001 + 10000))
+        read -p "请为 ${protocol} 输入监听端口(回车使用随机端口 $candidate): " user_input
+        port=${user_input:-$candidate}
+        # 检查是否为数字且在 1-65535 范围内
+        if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+            echo "端口 $port 无效，请输入 1-65535 的数字"
+            continue
+        fi
+        # 检查端口是否被占用
+        if ss -tuln | awk '{print $5}' | grep -E -q "(:|\\])${port}\$"; then
+            echo "端口 $port 被占用，请输入其他端口"
+            continue
+        fi
+        echo "$port"
+        return 0
     done
 }
+
 # 随机生成 WS 路径
 generate_ws_path() {
-    echo "/$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 10)"
+    echo "/$(tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 10)"
 }
+
 INSTALL_DIR="/root/catmi/xray"
-mkdir -p $INSTALL_DIR
+mkdir -p "$INSTALL_DIR" /usr/local/etc/xray /root/catmi
 
+# 安装 xray（保留你原来的安装方式）
+print_info "安装最新 Xray..."
+if ! bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; then
+    print_error "Xray 安装失败，请检查网络与安装脚本来源"
+    exit 1
+fi
 
-# 安装xray
-echo "安装最新 Xray..."
-bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install || { echo "Xray 安装失败"; exit 1; }
+# 确认 xray 二进制存在
+if [ ! -x /usr/local/bin/xray ]; then
+    print_error "/usr/local/bin/xray 不存在或不可执行，安装可能失败"
+    exit 1
+fi
 
-mv /usr/local/bin/xray $INSTALL_DIR/xrayls || { echo "移动文件失败"; exit 1; }
-chmod +x $INSTALL_DIR/xrayls || { echo "修改权限失败"; exit 1; }
+# 移动并重命名为 xrayls（保留可执行权限）
+mv -f /usr/local/bin/xray "$INSTALL_DIR/xrayls" 2>/dev/null || cp -f /usr/local/bin/xray "$INSTALL_DIR/xrayls"
+chmod +x "$INSTALL_DIR/xrayls"
 
+# systemd service
 cat <<EOF >/etc/systemd/system/xrayls.service
 [Unit]
 Description=xrayls Service
@@ -75,266 +103,320 @@ After=network.target
 ExecStart=$INSTALL_DIR/xrayls -c $INSTALL_DIR/config.json
 Restart=on-failure
 RestartSec=3
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
 EOF
-bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh)
 
-dest_server=$(grep '^dest_server' /root/catmi/dest_server.txt | sed 's/.*[:：]//')
-# 生成随机 ID
-short_id=$(dd bs=4 count=2 if=/dev/urandom | xxd -p -c 8)
+# 如果你依赖外部 domains 脚本来填充 /root/catmi/dest_server.txt，请执行
+if [ -x /bin/bash ]; then
+    # 靠你原脚本位置调用 domains.sh（容错）
+    if curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh >/dev/null 2>&1; then
+        bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh) || print_info "domains.sh 执行结束（非致命）"
+    else
+        print_info "无法下载 domains.sh（可能离线），跳过该步骤"
+    fi
+fi
 
-getkey() {
-    echo "正在生成私钥和公钥，请妥善保管好..."
-    mkdir -p /usr/local/etc/xray
+# 读取 dest_server，容错处理
+dest_server=""
+if [ -f /root/catmi/dest_server.txt ]; then
+    dest_server=$(grep -Eo '[:：]\s*[^[:space:]]+' /root/catmi/dest_server.txt | sed 's/[:：]\s*//g' | head -n1)
+    # 也尝试直接读取整行 key=value
+    if [ -z "$dest_server" ]; then
+        dest_server=$(grep -E '^dest_server' /root/catmi/dest_server.txt 2>/dev/null | sed 's/.*[:=：]\s*//g' | head -n1)
+    fi
+fi
 
-    # 生成密钥并保存到文件
-    $INSTALL_DIR/xrayls x25519 > /usr/local/etc/xray/key || {
-        print_error "生成密钥失败"
-        return 1
-    }
+if [ -z "$dest_server" ]; then
+    print_error "未检测到有效的 dest_server（/root/catmi/dest_server.txt），请先确保文件存在并包含 dest_server: your.domain"
+    exit 1
+fi
+print_info "目标域名 dest_server=$dest_server"
 
-    # 提取私钥和公钥
-    private_key=$(awk 'NR==1 {print $3}' /usr/local/etc/xray/key)
-    public_key=$(awk 'NR==2 {print $3}' /usr/local/etc/xray/key)
-
-    # 保存密钥到文件
-    echo "$private_key" > /usr/local/etc/xray/privatekey
-    echo "$public_key" > /usr/local/etc/xray/publickey
-
-   
-}
-getkey
-# 提示输入监听端口号
-read -p "请输入 Vless 监听端口 (默认为 443): " PORT
-PORT=${PORT:-443}
-port=$(generate_port "reality")
-# 生成 UUID 和 WS 路径
-UUID=$(generate_uuid)
-WS_PATH=$(generate_ws_path)
-WS_PATH1=$(generate_ws_path)
-WS_PATH2=$(generate_ws_path)
-
-
-
-
-
-# 获取公网 IP 地址
-PUBLIC_IP_V4=$(curl -s https://api.ipify.org)
-PUBLIC_IP_V6=$(curl -s https://api64.ipify.org)
-
-# 选择使用哪个公网 IP 地址
-echo "请选择要使用的公网 IP 地址:"
-echo "1. $PUBLIC_IP_V4"
-echo "2. $PUBLIC_IP_V6"
-read -p "请输入对应的数字选择 [默认1]: " IP_CHOICE
-
-# 如果没有输入（即回车），则默认选择1
-IP_CHOICE=${IP_CHOICE:-1}
-
-# 选择公网 IP 地址
-if [ "$IP_CHOICE" -eq 1 ]; then
-    PUBLIC_IP=$PUBLIC_IP_V4
-    # 设置第二个变量为“空”
-    VALUE=""
-    link_ip="$PUBLIC_IP"
-elif [ "$IP_CHOICE" -eq 2 ]; then
-    PUBLIC_IP=$PUBLIC_IP_V6
-    # 设置第二个变量为 "[::]:"
-    VALUE="[::]:"
-    link_ip="[$PUBLIC_IP]"
-else
-    echo "无效选择，退出脚本"
+# 生成 Reality 私钥对等信息并保存（public/private/hash/password）
+print_info "正在生成 Reality 密钥对（x25519）..."
+key_output=$("$INSTALL_DIR/xrayls" x25519 2>/dev/null)
+if [ -z "$key_output" ]; then
+    print_error "xrayls x25519 生成失败，请确认 $INSTALL_DIR/xrayls 可执行并支持 x25519 子命令"
     exit 1
 fi
 
+private_key=$(echo "$key_output" | awk -F': ' '/PrivateKey/ {print $2}')
+public_key=$(echo "$key_output" | awk -F': ' '/PublicKey/ {print $2}')
+password=$(echo "$key_output" | awk -F': ' '/Password/ {print $2}')
+hash32=$(echo "$key_output" | awk -F': ' '/Hash32/ {print $2}')
 
+# 检查并保存
+if [ -z "$private_key" ] || [ -z "$public_key" ]; then
+    print_error "未从 x25519 输出中解析到 private/public key，请查看输出："
+    echo "$key_output"
+    exit 1
+fi
 
-cat <<EOF > $INSTALL_DIR/config.json
+echo "$private_key" > /usr/local/etc/xray/privatekey
+echo "$public_key" > /usr/local/etc/xray/publickey
+echo "$password" > /usr/local/etc/xray/password
+echo "$hash32" > /usr/local/etc/xray/hash32
+chmod 600 /usr/local/etc/xray/*
+
+print_info "密钥已保存到 /usr/local/etc/xray/ (privatekey, publickey, password, hash32)"
+
+# 生成短 id
+short_id=$(dd if=/dev/urandom bs=4 count=2 2>/dev/null | xxd -p -c 8)
+
+# 生成端口与路径
+PORT=$(generate_port "Reality (外部 TCP)")
+WS_PATH1=$(generate_ws_path)
+WS_PATH=$(generate_ws_path)
+WS_PATH2=$(generate_ws_path)
+UUID=$(generate_uuid)
+
+print_info "使用端口: $PORT"
+print_info "UUID: $UUID"
+print_info "WS_PATH1: $WS_PATH1"
+print_info "WS_PATH: $WS_PATH"
+print_info "WS_PATH2: $WS_PATH2"
+print_info "short_id: $short_id"
+
+# 获取公网 IP 地址（容错）
+PUBLIC_IP_V4=$(curl -s4 https://api.ipify.org || true)
+PUBLIC_IP_V6=$(curl -s6 https://api64.ipify.org || true)
+
+if [ -z "$PUBLIC_IP_V4" ] && [ -z "$PUBLIC_IP_V6" ]; then
+    print_error "无法检测公网 IP（IPv4/IPv6），请检查网络或手动填写"
+    exit 1
+fi
+
+echo "请选择要使用的公网 IP 地址:"
+[ -n "$PUBLIC_IP_V4" ] && echo "1. IPv4: $PUBLIC_IP_V4"
+[ -n "$PUBLIC_IP_V6" ] && echo "2. IPv6: $PUBLIC_IP_V6"
+read -p "请输入对应的数字选择 [默认1，若不可用则选择可用项]: " IP_CHOICE
+IP_CHOICE=${IP_CHOICE:-1}
+
+# 选择公网 IP 地址
+if [ "$IP_CHOICE" -eq 2 ] && [ -n "$PUBLIC_IP_V6" ]; then
+    PUBLIC_IP="$PUBLIC_IP_V6"
+    VALUE="[::]:"
+    link_ip="[$PUBLIC_IP]"
+else
+    # 默认使用 IPv4（如果不存在则回落到 IPv6）
+    if [ -n "$PUBLIC_IP_V4" ]; then
+        PUBLIC_IP="$PUBLIC_IP_V4"
+        VALUE=""
+        link_ip="$PUBLIC_IP"
+    else
+        PUBLIC_IP="$PUBLIC_IP_V6"
+        VALUE="[::]:"
+        link_ip="[$PUBLIC_IP]"
+    fi
+fi
+
+print_info "选定公网 IP: $PUBLIC_IP"
+
+# 生成 xray config.json（含多个 inbound）
+cat <<EOF > "$INSTALL_DIR/config.json"
 {
-    "log": {
-        "disabled": false,
-        "level": "info",
-        "timestamp": true
+  "log": {
+    "disabled": false,
+    "level": "info",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 9998,
+      "tag": "VLESS-WS",
+      "protocol": "VLESS",
+      "settings": {
+        "clients": [
+          {
+            "id": "${UUID}",
+            "alterId": 64
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "${WS_PATH1}"
+        }
+      }
     },
-    "inbounds": [
-        {
-            "listen": "127.0.0.1",
-            "port": 9998,
-            "tag": "VLESS-WS",
-            "protocol": "VLESS",
-            "settings": {
-                "clients": [
-                    {
-                        "id": "${UUID}",
-                        "alterId": 64
-                    }
-                ],
-                "decryption": "none"
-            },
-            "streamSettings": {
-                "network": "ws",
-                "wsSettings": {
-                    "path": "${WS_PATH1}"
-                }
-            }
-        },
-        {
-           "listen": "127.0.0.1",
-            "port": 9999,
-            "tag": "VEESS-WS",
-            "protocol": "vmess",
-            "settings": {
-                "clients": [
-                    {
-                        "id": "${UUID}",
-                        "alterId": 64
-                    }
-                ]
-            },
-            "streamSettings": {
-                "network": "ws",
-                "wsSettings": {
-                    "path": "${WS_PATH}"
-                }
-            }
-        },
-        
-        {
-            "listen": "127.0.0.1",
-            "port": 9997,
-            "protocol": "vless",
-            "settings": {
-                "decryption": "none",
-                "clients": [
-                    {
-                        "id": "${UUID}"
-                    }
-                ]
-            },
-            "streamSettings": {
-                "network": "xhttp",
-                "xhttpSettings": {
-                    "path": "${WS_PATH2}"
-                }
-            },
-            "sniffing": {
-                "enabled": true,
-                "destOverride": [
-                    "http",
-                    "tls",
-                    "quic"
-                ]
-            },
-            "tag": "in1"
-        },
-        {
-          "listen": "0.0.0.0",
-          "port": $port,
-          "protocol": "vless",
-          "settings": {
-              "clients": [
-                  {
-                      "id": "$UUID",
-                      "flow": "xtls-rprx-vision"
-                  }
-              ],
-              "decryption": "none",
-              "fallbacks": [
-          { 
-            
+    {
+      "listen": "127.0.0.1",
+      "port": 9999,
+      "tag": "VMESS-WS",
+      "protocol": "vmess",
+      "settings": {
+        "clients": [
+          {
+            "id": "${UUID}",
+            "alterId": 64
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "${WS_PATH}"
+        }
+      }
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 9997,
+      "protocol": "vless",
+      "settings": {
+        "decryption": "none",
+        "clients": [
+          {
+            "id": "${UUID}"
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "xhttpSettings": {
+          "path": "${WS_PATH2}"
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      },
+      "tag": "in1"
+    },
+    {
+      "listen": "0.0.0.0",
+      "port": ${PORT},
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "${UUID}",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none",
+        "fallbacks": [
+          {
             "dest": 9997
           }
         ]
-          },
-          "streamSettings": {
-              "network": "tcp",
-              "security": "reality",
-              "realitySettings": {
-                  "show": true,
-                  "dest": "$dest_server:443",
-                  "xver": 0,
-                  "serverNames": [
-                      "$dest_server"
-                  ],
-                  "privateKey": "$(cat /usr/local/etc/xray/privatekey)",
-                  "minClientVer": "",
-                  "maxClientVer": "",
-                  "maxTimeDiff": 0,
-                  "shortIds": [
-                  "$short_id"
-                  ]
-              }
-          }
-      }
-    ],
-    "outbounds": [
-        {
-            "protocol": "freedom",
-            "settings": {}
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": true,
+          "dest": "${dest_server}:443",
+          "xver": 0,
+          "serverNames": [
+            "${dest_server}"
+          ],
+          "privateKey": "$(cat /usr/local/etc/xray/privatekey)",
+          "minClientVer": "",
+          "maxClientVer": "",
+          "maxTimeDiff": 0,
+          "shortIds": [
+            "${short_id}"
+          ]
         }
-    ]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {}
+    }
+  ]
 }
 EOF
 
-# 重载systemd服务配置
-sudo systemctl daemon-reload
-sudo systemctl enable xrayls
-sudo systemctl restart xrayls || { echo "重启 xrayls 服务失败"; exit 1; }
+# 重新加载 systemd 并启动服务
+systemctl daemon-reload
+systemctl enable xrayls
+if ! systemctl restart xrayls; then
+    print_error "重启 xrayls 服务失败，请运行 'journalctl -u xrayls -b --no-pager' 获取详情"
+    systemctl status xrayls --no-pager || true
+    exit 1
+fi
+print_info "xrayls 服务已启动并正在运行"
 
+# 保存安装信息
 {
     echo "xray 安装完成！"
     echo "服务器地址：${PUBLIC_IP}"
-    echo "IP_CHOICE：${IP_CHOICE}"
     echo "端口：${PORT}"
     echo "UUID：${UUID}"
     echo "vless WS 路径：${WS_PATH1}"
     echo "vmess WS 路径：${WS_PATH}"
     echo "xhttp 路径：${WS_PATH2}"
-    
+    echo "dest_server：${dest_server}"
+    echo "short_id：${short_id}"
 } > "/root/catmi/install_info.txt"
-bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh)
 
-DOMAIN_LOWER=$(grep '^DOMAIN_LOWER' /root/catmi/DOMAIN_LOWER.txt | sed 's/.*[:：]//')
+# 如果需要 nginx (你原脚本调用)，保留调用（容错）
+if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh >/dev/null 2>&1; then
+    bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh) || print_info "nginx.sh 执行结束（非致命）"
+else
+    print_info "无法下载 nginx.sh，跳过 nginx 配置"
+fi
 
+# DOMAIN_LOWER 读取（容错）
+DOMAIN_LOWER=""
+if [ -f /root/catmi/DOMAIN_LOWER.txt ]; then
+    DOMAIN_LOWER=$(grep -Eo '[:：]\s*[^[:space:]]+' /root/catmi/DOMAIN_LOWER.txt | sed 's/[:：]\s*//g' | head -n1)
+    if [ -z "$DOMAIN_LOWER" ]; then
+        DOMAIN_LOWER=$(grep -E '^DOMAIN_LOWER' /root/catmi/DOMAIN_LOWER.txt 2>/dev/null | sed 's/.*[:=：]\s*//g' | head -n1)
+    fi
+fi
+DOMAIN_LOWER=${DOMAIN_LOWER:-$dest_server}
 
-
-cat << EOF > $INSTALL_DIR/clash-meta.yaml
+# 生成 Clash Meta 配置片段
+cat << EOF > "$INSTALL_DIR/clash-meta.yaml"
   - name: Reality
-    port: $port
-    server: $PUBLIC_IP
+    port: ${PORT}
+    server: ${PUBLIC_IP}
     type: vless
     network: tcp
     udp: true
     tls: true
-    servername: $dest_server
+    servername: ${dest_server}
     skip-cert-verify: true
     reality-opts:
       public-key: $(cat /usr/local/etc/xray/publickey)
-      short-id: $short_id
-    uuid: $UUID
+      short-id: ${short_id}
+    uuid: ${UUID}
     flow: xtls-rprx-vision
     client-fingerprint: chrome
   - name: vmess-ws-tls
     type: vmess
-    server: $DOMAIN_LOWER
+    server: ${DOMAIN_LOWER}
     port: 443
     cipher: auto
-    uuid: $UUID
+    uuid: ${UUID}
     alterId: 0
     tls: true
     network: ws
     ws-opts:
       path: ${WS_PATH}
       headers:
-        Host: $DOMAIN_LOWER
-    servername: $DOMAIN_LOWER
+        Host: ${DOMAIN_LOWER}
+    servername: ${DOMAIN_LOWER}
   - name: vless-ws-tls
     type: vless
-    server: $DOMAIN_LOWER
+    server: ${DOMAIN_LOWER}
     port: 443
-    uuid: $UUID
+    uuid: ${UUID}
     tls: true
     skip-cert-verify: true
     network: ws
@@ -342,64 +424,56 @@ cat << EOF > $INSTALL_DIR/clash-meta.yaml
     cipher: auto
     ws-opts:
       headers:
-        Host: $DOMAIN_LOWER
+        Host: ${DOMAIN_LOWER}
       path: ${WS_PATH1}
-    servername: $DOMAIN_LOWER
+    servername: ${DOMAIN_LOWER}
 
 EOF
-cat << EOF > $INSTALL_DIR/xhttp.json
-{
-    "downloadSettings": {
-      "address": "$PUBLIC_IP", 
-      "port": $port, 
-      "network": "xhttp", 
-      "xhttpSettings": {
-        "path": "${WS_PATH2}", 
-        "mode": "auto"
-      },
-      "security": "reality", 
-      "realitySettings":  {
-        "serverName": "$dest_server",
-        "fingerprint": "chrome",
-        "show": false,
-        "publicKey": "$(cat /usr/local/etc/xray/publickey)",
-        "shortId": "$short_id",
-        "spiderX": ""
-      }
-    }
-  }
 
-  
-  
-  {
+# 生成 xhttp.json（仅保留一个正确的 JSON）
+cat <<EOF > "$INSTALL_DIR/xhttp.json"
+{
   "downloadSettings": {
-    "address": "$DOMAIN_LOWER", 
-    "port": 443, 
-    "network": "xhttp", 
-    "security": "tls", 
-    "tlsSettings": {
-      "serverName": "$DOMAIN_LOWER", 
-      "allowInsecure": false
-    }, 
+    "address": "${PUBLIC_IP}",
+    "port": ${PORT},
+    "network": "xhttp",
     "xhttpSettings": {
-      "path": "${WS_PATH2}", 
+      "path": "${WS_PATH2}",
       "mode": "auto"
+    },
+    "security": "reality",
+    "realitySettings": {
+      "serverName": "${dest_server}",
+      "fingerprint": "chrome",
+      "show": false,
+      "publicKey": "$(cat /usr/local/etc/xray/publickey)",
+      "shortId": "${short_id}",
+      "spiderX": ""
     }
   }
 }
 EOF
 
-# 生成分享链接
+# 生成分享链接（将 pbk 指向 publickey）
 share_link="
-vless://$UUID@${link_ip}:$port?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$dest_server&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=$short_id&type=tcp&headerType=none#Reality
-vless://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&allowInsecure=1&type=ws&host=$DOMAIN_LOWER&path=${WS_PATH1}#vless-ws-tls
-vmess://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&allowInsecure=1&type=ws&host=$DOMAIN_LOWER&path=${WS_PATH}#vmess-ws-tls
-vless://$UUID@$DOMAIN_LOWER:443?encryption=none&security=tls&sni=$DOMAIN_LOWER&type=xhttp&host=$DOMAIN_LOWER&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
+vless://${UUID}@${link_ip}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${dest_server}&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=${short_id}&type=tcp&headerType=none#Reality
+vless://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&allowInsecure=1&type=ws&host=${DOMAIN_LOWER}&path=${WS_PATH1}#vless-ws-tls
+vmess://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&allowInsecure=1&type=ws&host=${DOMAIN_LOWER}&path=${WS_PATH}#vmess-ws-tls
+vless://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&type=xhttp&host=${DOMAIN_LOWER}&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
 "
-echo "${share_link}" > $INSTALL_DIR/v2ray.txt
+echo "${share_link}" > "$INSTALL_DIR/v2ray.txt"
 
+# 展示服务状态与分享链接路径
+systemctl status xrayls --no-pager || true
 
+echo -e "\n${GREEN}安装完成，关键输出文件：${PLAIN}"
+echo " - /root/catmi/install_info.txt"
+echo " - $INSTALL_DIR/config.json"
+echo " - $INSTALL_DIR/v2ray.txt"
+echo " - /usr/local/etc/xray/privatekey (权限600)"
+echo " - /usr/local/etc/xray/publickey (权限600)"
+echo " - $INSTALL_DIR/clash-meta.yaml"
+echo " - $INSTALL_DIR/xhttp.json"
 
-sudo systemctl status xrayls
-
-cat $INSTALL_DIR/v2ray.txt
+echo -e "\n分享链接（保存在 $INSTALL_DIR/v2ray.txt）："
+cat "$INSTALL_DIR/v2ray.txt"
