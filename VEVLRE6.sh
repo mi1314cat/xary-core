@@ -136,32 +136,46 @@ fi
 print_info "目标域名 dest_server=$dest_server"
 
 # 生成 Reality 私钥对等信息并保存（public/private/hash/password）
-print_info "正在生成 Reality 密钥对（x25519）..."
-key_output=$("$INSTALL_DIR/xrayls" x25519 2>/dev/null)
-if [ -z "$key_output" ]; then
-    print_error "xrayls x25519 生成失败，请确认 $INSTALL_DIR/xrayls 可执行并支持 x25519 子命令"
-    exit 1
-fi
+getkey() {
+    echo "[Info] 正在生成 Reality 密钥对，请耐心等待..."
 
-private_key=$(echo "$key_output" | awk -F': ' '/PrivateKey/ {print $2}')
-public_key=$(echo "$key_output" | awk -F': ' '/PublicKey/ {print $2}')
-password=$(echo "$key_output" | awk -F': ' '/Password/ {print $2}')
-hash32=$(echo "$key_output" | awk -F': ' '/Hash32/ {print $2}')
+    mkdir -p /usr/local/etc/xray
 
-# 检查并保存
-if [ -z "$private_key" ] || [ -z "$public_key" ]; then
-    print_error "未从 x25519 输出中解析到 private/public key，请查看输出："
-    echo "$key_output"
-    exit 1
-fi
+    XRAY_BIN="$INSTALL_DIR/xrayls"
+    if [ ! -x "$XRAY_BIN" ]; then
+        echo "[Error] 未找到 xrayls 可执行文件：$XRAY_BIN"
+        exit 1
+    fi
 
-echo "$private_key" > /usr/local/etc/xray/privatekey
-echo "$public_key" > /usr/local/etc/xray/publickey
-echo "$password" > /usr/local/etc/xray/password
-echo "$hash32" > /usr/local/etc/xray/hash32
-chmod 600 /usr/local/etc/xray/*
+    # 生成 PrivateKey、Password、Hash32
+    key_output=$("$XRAY_BIN" x25519)
+    private_key=$(echo "$key_output" | awk -F': ' '/PrivateKey/ {print $2}')
+    password=$(echo "$key_output" | awk -F': ' '/Password/ {print $2}')
+    hash32=$(echo "$key_output" | awk -F': ' '/Hash32/ {print $2}')
 
-print_info "密钥已保存到 /usr/local/etc/xray/ (privatekey, publickey, password, hash32)"
+    if [ -z "$private_key" ] || [ -z "$password" ]; then
+        echo "[Error] 未生成 privateKey 或 password，退出"
+        exit 1
+    fi
+
+    # publicKey 就等于 password
+    public_key="$password"
+
+    # 保存到 /usr/local/etc/xray
+    echo "$private_key" > /usr/local/etc/xray/privatekey
+    echo "$public_key" > /usr/local/etc/xray/publickey
+    echo "$password" > /usr/local/etc/xray/password
+    echo "$hash32" > /usr/local/etc/xray/hash32
+    chmod 600 /usr/local/etc/xray/*
+
+    # 输出
+    echo "[Info] Reality 密钥生成完成："
+    echo "PrivateKey: $private_key"
+    echo "PublicKey : $public_key"
+    echo "Password  : $password"
+    echo "Hash32    : $hash32"
+}
+getkey
 
 # 生成短 id
 short_id=$(dd if=/dev/urandom bs=4 count=2 2>/dev/null | xxd -p -c 8)
@@ -355,6 +369,7 @@ print_info "xrayls 服务已启动并正在运行"
 {
     echo "xray 安装完成！"
     echo "服务器地址：${PUBLIC_IP}"
+    echo "IP_CHOICE：${IP_CHOICE}"
     echo "端口：${PORT}"
     echo "UUID：${UUID}"
     echo "vless WS 路径：${WS_PATH1}"
