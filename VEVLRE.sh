@@ -236,6 +236,8 @@ print_info "选定公网 IP: $PUBLIC_IP"
 cat <<EOF > "$INSTALL_DIR/config.json"
 {
   "log": {
+    "access": "$INSTALL_DIR/access.log",
+    "error": "$INSTALL_DIR/error.log",
     "disabled": false,
     "level": "info",
     "timestamp": true
