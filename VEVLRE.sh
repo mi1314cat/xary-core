@@ -239,7 +239,7 @@ cat <<EOF > "$INSTALL_DIR/config.json"
     "access": "$INSTALL_DIR/access.log",
     "error": "$INSTALL_DIR/error.log",
     "disabled": false,
-    "level": "info",
+    "loglevel": "info",
     "timestamp": true
   },
   "inbounds": [
