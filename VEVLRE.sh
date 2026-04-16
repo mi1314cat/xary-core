@@ -385,11 +385,18 @@ cat <<EOF > "$INSTALL_DIR/config.json"
     }
   ],
   "outbounds": [
+    
     {
-      "protocol": "freedom",
-      "settings": {}
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    
+    {
+      "tag": "block",
+      "protocol": "blackhole"
     }
   ]
+
 }
 EOF
 
