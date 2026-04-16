@@ -242,6 +242,39 @@ cat <<EOF > "$INSTALL_DIR/config.json"
     "loglevel": "info",
     "timestamp": true
   },
+  "dns": {
+    "servers": [
+      "https+local://1.1.1.1/dns-query",
+      "https+local://8.8.8.8/dns-query",
+      "localhost"
+
+    ]
+  },
+  
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      
+      {
+        "ip": [
+          "geoip:private" 
+        ],
+        "outboundTag": "block" 
+      },
+      {
+       
+        "ip": ["geoip:cn"],
+        "outboundTag": "block"
+      },
+      
+      {
+        "domain": [
+          "geosite:category-ads-all" 
+        ],
+        "outboundTag": "block" 
+      }
+    ]
+  },
   "inbounds": [
     {
       "listen": "127.0.0.1",
