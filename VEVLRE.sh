@@ -503,6 +503,24 @@ cat <<EOF > "$INSTALL_DIR/xhttp.json"
     }
   }
 }
+
+
+{
+  "downloadSettings": {
+    "address": "${DOMAIN_LOWER}", 
+    "port": 443, 
+    "network": "xhttp", 
+    "security": "tls", 
+    "tlsSettings": {
+      "serverName": "${DOMAIN_LOWER}", 
+      "allowInsecure": false
+    }, 
+    "xhttpSettings": {
+      "path": "${WS_PATH2}", 
+      "mode": "auto"
+    }
+  }
+}
 EOF
 
 # 生成分享链接（将 pbk 指向 publickey）
