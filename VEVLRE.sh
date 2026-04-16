@@ -255,17 +255,7 @@ cat <<EOF > "$INSTALL_DIR/config.json"
     "domainStrategy": "IPIfNonMatch",
     "rules": [
       
-      {
-        "ip": [
-          "geoip:private" 
-        ],
-        "outboundTag": "block" 
-      },
-      {
-       
-        "ip": ["geoip:cn"],
-        "outboundTag": "block"
-      },
+     
       
       {
         "domain": [
