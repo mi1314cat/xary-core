@@ -463,6 +463,33 @@ else
     # ===== 不安装 → 直接手动输入 =====
     read -p "请输入你的域名 (DOMAIN_LOWER): " DOMAIN_LOWER
 
+cat << EOF > "$INSTALL_DIR/nginx.json"
+    
+    location ${WS_PATH} {
+            proxy_redirect off;
+            proxy_pass http://127.0.0.1:9999;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host \$host;
+        }
+        location ${WS_PATH1} {
+            proxy_redirect off;
+            proxy_pass http://127.0.0.1:9998;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host \$host;
+        }
+        location ${WS_PATH2} {
+        proxy_request_buffering      off;
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:9997;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+}
+EOF
     if [[ -z "$DOMAIN_LOWER" ]]; then
         print_info "域名不能为空，请重新运行脚本"
         exit 1
