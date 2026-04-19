@@ -74,7 +74,8 @@ generate_ws_path() {
 }
 
 INSTALL_DIR="/root/catmi/xray"
-mkdir -p "$INSTALL_DIR" /usr/local/etc/xray /root/catmi
+mkdir -p "$INSTALL_DIR" /usr/local/etc/xray /root/catmi $INSTALL_DIR/conf $INSTALL_DIR/log
+echo "mox：xray" >> /root/catmi/install_info.txt
 
 # 安装 xray（保留你原来的安装方式）
 print_info "安装最新 Xray..."
@@ -100,7 +101,7 @@ Description=xrayls Service
 After=network.target
 
 [Service]
-ExecStart=$INSTALL_DIR/xrayls -c $INSTALL_DIR/config.json
+ExecStart=$INSTALL_DIR/xrayls -c $INSTALL_DIR/conf
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65536
@@ -109,139 +110,24 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 EOF
 
-# 如果你依赖外部 domains 脚本来填充 /root/catmi/dest_server.txt，请执行
-if [ -x /bin/bash ]; then
-    # 靠你原脚本位置调用 domains.sh（容错）
-    if curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh >/dev/null 2>&1; then
-        bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh) || print_info "domains.sh 执行结束（非致命）"
-    else
-        print_info "无法下载 domains.sh（可能离线），跳过该步骤"
-    fi
-fi
 
-# 读取 dest_server，容错处理
-dest_server=""
-if [ -f /root/catmi/dest_server.txt ]; then
-    dest_server=$(grep -Eo '[:：]\s*[^[:space:]]+' /root/catmi/dest_server.txt | sed 's/[:：]\s*//g' | head -n1)
-    # 也尝试直接读取整行 key=value
-    if [ -z "$dest_server" ]; then
-        dest_server=$(grep -E '^dest_server' /root/catmi/dest_server.txt 2>/dev/null | sed 's/.*[:=：]\s*//g' | head -n1)
-    fi
-fi
-
-if [ -z "$dest_server" ]; then
-    print_error "未检测到有效的 dest_server（/root/catmi/dest_server.txt），请先确保文件存在并包含 dest_server: your.domain"
-    exit 1
-fi
-print_info "目标域名 dest_server=$dest_server"
-
-# 生成 Reality 私钥对等信息并保存（public/private/hash/password）
-getkey() {
-    echo "[Info] 正在生成 Reality 密钥对，请耐心等待..."
-
-    mkdir -p /usr/local/etc/xray
-
-    XRAY_BIN="$INSTALL_DIR/xrayls"
-    if [ ! -x "$XRAY_BIN" ]; then
-        echo "[Error] 未找到 xrayls 可执行文件：$XRAY_BIN"
-        exit 1
-    fi
-
-    # 生成 PrivateKey、Password、Hash32
-    key_output=$("$XRAY_BIN" x25519)
-    private_key=$(echo "$key_output" | awk -F': ' '/PrivateKey/ {print $2}')
-    password=$(echo "$key_output" | awk -F': ' '/Password/ {print $2}')
-    hash32=$(echo "$key_output" | awk -F': ' '/Hash32/ {print $2}')
-
-    if [ -z "$private_key" ] || [ -z "$password" ]; then
-        echo "[Error] 未生成 privateKey 或 password，退出"
-        exit 1
-    fi
-
-    # publicKey 就等于 password
-    public_key="$password"
-
-    # 保存到 /usr/local/etc/xray
-    echo "$private_key" > /usr/local/etc/xray/privatekey
-    echo "$public_key" > /usr/local/etc/xray/publickey
-    echo "$password" > /usr/local/etc/xray/password
-    echo "$hash32" > /usr/local/etc/xray/hash32
-    chmod 600 /usr/local/etc/xray/*
-
-    # 输出
-    echo "[Info] Reality 密钥生成完成："
-    echo "PrivateKey: $private_key"
-    echo "PublicKey : $public_key"
-    echo "Password  : $password"
-    echo "Hash32    : $hash32"
-}
-getkey
-
-# 生成短 id
-short_id=$(dd if=/dev/urandom bs=4 count=2 2>/dev/null | xxd -p -c 8)
-
-
-read -p "请输入 Vless 监听端口 (默认为 443): " NPORT
-NPORT=${PORT:-443}
-# 生成端口与路径
-PORT=$(generate_port "Reality (外部 TCP)")
-WS_PATH1=$(generate_ws_path)
-WS_PATH=$(generate_ws_path)
-WS_PATH2=$(generate_ws_path)
-UUID=$(generate_uuid)
-
-print_info "使用端口: $PORT"
-print_info "UUID: $UUID"
-print_info "WS_PATH1: $WS_PATH1"
-print_info "WS_PATH: $WS_PATH"
-print_info "WS_PATH2: $WS_PATH2"
-print_info "short_id: $short_id"
-
-# 获取公网 IP 地址（容错）
-PUBLIC_IP_V4=$(curl -s4 https://api.ipify.org || true)
-PUBLIC_IP_V6=$(curl -s6 https://api64.ipify.org || true)
-
-if [ -z "$PUBLIC_IP_V4" ] && [ -z "$PUBLIC_IP_V6" ]; then
-    print_error "无法检测公网 IP（IPv4/IPv6），请检查网络或手动填写"
-    exit 1
-fi
-
-echo "请选择要使用的公网 IP 地址:"
-[ -n "$PUBLIC_IP_V4" ] && echo "1. IPv4: $PUBLIC_IP_V4"
-[ -n "$PUBLIC_IP_V6" ] && echo "2. IPv6: $PUBLIC_IP_V6"
-read -p "请输入对应的数字选择 [默认1，若不可用则选择可用项]: " IP_CHOICE
-IP_CHOICE=${IP_CHOICE:-1}
-
-# 选择公网 IP 地址
-if [ "$IP_CHOICE" -eq 2 ] && [ -n "$PUBLIC_IP_V6" ]; then
-    PUBLIC_IP="$PUBLIC_IP_V6"
-    VALUE="[::]:"
-    link_ip="[$PUBLIC_IP]"
-else
-    # 默认使用 IPv4（如果不存在则回落到 IPv6）
-    if [ -n "$PUBLIC_IP_V4" ]; then
-        PUBLIC_IP="$PUBLIC_IP_V4"
-        VALUE=""
-        link_ip="$PUBLIC_IP"
-    else
-        PUBLIC_IP="$PUBLIC_IP_V6"
-        VALUE="[::]:"
-        link_ip="[$PUBLIC_IP]"
-    fi
-fi
-
-print_info "选定公网 IP: $PUBLIC_IP"
 
 # 生成 xray config.json（含多个 inbound）
-cat <<EOF > "$INSTALL_DIR/config.json"
+cat <<EOF > "$INSTALL_DIR/conf/log.json"
 {
   "log": {
-    "access": "$INSTALL_DIR/access.log",
-    "error": "$INSTALL_DIR/error.log",
+    "access": "$INSTALL_DIR/log/access.log",
+    "error": "$INSTALL_DIR/log/error.log",
     "disabled": false,
     "loglevel": "info",
     "timestamp": true
-  },
+  }
+   }
+EOF
+
+cat <<EOF > "$INSTALL_DIR/conf/dns.json"
+{
+
   "dns": {
     "servers": [
       "https+local://1.1.1.1/dns-query",
@@ -249,8 +135,11 @@ cat <<EOF > "$INSTALL_DIR/config.json"
       "localhost"
 
     ]
-  },
-  
+  }
+  }
+EOF
+cat <<EOF > "$INSTALL_DIR/conf/routing.json"
+{
   "routing": {
     "domainStrategy": "IPIfNonMatch",
     "rules": [
@@ -264,7 +153,27 @@ cat <<EOF > "$INSTALL_DIR/config.json"
         "outboundTag": "block" 
       }
     ]
-  },
+  }
+  }
+EOF 
+cat <<EOF > "$INSTALL_DIR/conf/outbounds.json"
+{
+"outbounds": [
+    
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    }
+  ]
+}
+EOF
+cat <<EOF > "$INSTALL_DIR/conf/x_inbounds.json"
+{
   "inbounds": [
     {
       "listen": "127.0.0.1",
@@ -296,7 +205,7 @@ cat <<EOF > "$INSTALL_DIR/config.json"
         "clients": [
           {
             "id": "${UUID}",
-            "alterId": 64
+            "alterId": 0
           }
         ]
       },
@@ -334,60 +243,12 @@ cat <<EOF > "$INSTALL_DIR/config.json"
         ]
       },
       "tag": "in1"
-    },
-    {
-      "listen": "0.0.0.0",
-      "port": ${PORT},
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "${UUID}",
-            "flow": "xtls-rprx-vision"
-          }
-        ],
-        "decryption": "none",
-        "fallbacks": [
-          {
-            "dest": 9997
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": true,
-          "dest": "${dest_server}:443",
-          "xver": 0,
-          "serverNames": [
-            "${dest_server}"
-          ],
-          "privateKey": "$(cat /usr/local/etc/xray/privatekey)",
-          "minClientVer": "",
-          "maxClientVer": "",
-          "maxTimeDiff": 0,
-          "shortIds": [
-            "${short_id}"
-          ]
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    
-    {
-      "tag": "direct",
-      "protocol": "freedom"
-    },
-    
-    {
-      "tag": "block",
-      "protocol": "blackhole"
     }
   ]
-
 }
+EOF
+
+
 EOF
 
 # 重新加载 systemd 并启动服务
@@ -405,116 +266,126 @@ print_info "xrayls 服务已启动并正在运行"
     echo "xray 安装完成！"
     echo "服务器地址：${PUBLIC_IP}"
     echo "IP_CHOICE：${IP_CHOICE}"
-    echo "端口：${NPORT}"
-    echo "reality端口：${PORT}"
     echo "UUID：${UUID}"
     echo "vless WS 路径：${WS_PATH1}"
     echo "vmess WS 路径：${WS_PATH}"
     echo "xhttp 路径：${WS_PATH2}"
-    echo "dest_server：${dest_server}"
-    echo "short_id：${short_id}"
-} > "/root/catmi/install_info.txt"
-
-# 询问是否安装 nginx
-read -p "是否安装 Nginx? (y/n): " INSTALL_NGINX
-
-if [[ "$INSTALL_NGINX" == "y" || "$INSTALL_NGINX" == "Y" ]]; then
-    print_info "开始安装并配置 Nginx..."
-
-    # ===== 先执行 nginx =====
-    if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh >/dev/null 2>&1; then
-        bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh) \
-        || print_info "nginx.sh 执行结束（非致命）"
-    else
-        print_info "无法下载 nginx.sh，跳过 nginx 配置"
-    fi
-
-    # ===== 再读取 DOMAIN_LOWER（容错）=====
-    print_info "尝试读取 DOMAIN_LOWER..."
-
-    DOMAIN_LOWER=""
-    if [ -f /root/catmi/DOMAIN_LOWER.txt ]; then
-        DOMAIN_LOWER=$(grep -Eo '[:：]\s*[^[:space:]]+' /root/catmi/DOMAIN_LOWER.txt | sed 's/[:：]\s*//g' | head -n1)
-
-        if [ -z "$DOMAIN_LOWER" ]; then
-            DOMAIN_LOWER=$(grep -E '^DOMAIN_LOWER' /root/catmi/DOMAIN_LOWER.txt 2>/dev/null | sed 's/.*[:=：]\s*//g' | head -n1)
-        fi
-    fi
-
-    # fallback
-    DOMAIN_LOWER=${DOMAIN_LOWER:-$dest_server}
-
-    # 如果还是空 → 手动输入（兜底）
-    if [[ -z "$DOMAIN_LOWER" ]]; then
-        print_info "自动获取失败，请手动输入域名"
-        read -p "请输入 DOMAIN_LOWER: " DOMAIN_LOWER
-
-        if [[ -z "$DOMAIN_LOWER" ]]; then
-            print_info "域名不能为空，退出"
-            exit 1
-        fi
-    fi
-
-    print_info "最终使用 DOMAIN_LOWER=${DOMAIN_LOWER}"
-
-else
-    print_info "已选择不安装 Nginx"
-
-    # ===== 不安装 → 直接手动输入 =====
-    read -p "请输入你的域名 (DOMAIN_LOWER): " DOMAIN_LOWER
-
-cat << EOF > "$INSTALL_DIR/nginx.json"
     
-    location ${WS_PATH} {
-            proxy_redirect off;
-            proxy_pass http://127.0.0.1:9999;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade \$http_upgrade;
-            proxy_set_header Connection "upgrade";
-            proxy_set_header Host \$host;
-        }
-        location ${WS_PATH1} {
-            proxy_redirect off;
-            proxy_pass http://127.0.0.1:9998;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade \$http_upgrade;
-            proxy_set_header Connection "upgrade";
-            proxy_set_header Host \$host;
-        }
-        location ${WS_PATH2} {
-        proxy_request_buffering      off;
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:9997;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-}
-EOF
-    if [[ -z "$DOMAIN_LOWER" ]]; then
-        print_info "域名不能为空，请重新运行脚本"
-        exit 1
-    fi
+} > "$INSTALL_DIR/install_info.txt"
 
-    print_info "已设置 DOMAIN_LOWER=${DOMAIN_LOWER}"
+echo "请选择 Web 服务安装方式："
+echo "1. 安装 Nginx"
+echo "2. 安装 Caddy"
+echo "3. 跳过网页配置"
+read -p "请输入选项 (1/2/3): " WEB_CHOICE
+
+# ===== 统一获取端口 =====
+read -p "请输入监听端口 (默认 443): " NPORT
+NPORT=${NPORT:-443}
+echo "端口：${NPORT}" >> "$INSTALL_DIR/install_info.txt"
+
+# ===== 安装逻辑 =====
+case "$WEB_CHOICE" in
+    1)
+        print_info "选择安装 Nginx..."
+
+        if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh >/dev/null 2>&1; then
+            bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh) \
+            || print_info "nginx.sh 执行结束（非致命）"
+        else
+            print_info "无法下载 nginx.sh，跳过"
+        fi
+        ;;
+
+    2)
+        print_info "选择安装 Caddy..."
+
+        if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh >/dev/null 2>&1; then
+            bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh) \
+            || print_info "caddy.sh 执行结束（非致命）"
+        else
+            print_info "无法下载 caddy.sh，跳过"
+        fi
+        ;;
+
+    3)
+        print_info "跳过 Web 服务安装"
+        ;;
+
+    *)
+        print_info "输入错误，退出"
+        exit 1
+        ;;
+esac
+
+# ===== 统一 DOMAIN_LOWER 获取（无论选哪个都要）=====
+print_info "尝试读取 DOMAIN_LOWER..."
+
+DOMAIN_LOWER=""
+
+if [ -f /root/catmi/DOMAIN_LOWER.txt ]; then
+    DOMAIN_LOWER=$(grep -Eo '[:：]\s*[^[:space:]]+' /root/catmi/DOMAIN_LOWER.txt | sed 's/[:：]\s*//g' | head -n1)
+
+    if [ -z "$DOMAIN_LOWER" ]; then
+        DOMAIN_LOWER=$(grep -E '^DOMAIN_LOWER' /root/catmi/DOMAIN_LOWER.txt 2>/dev/null | sed 's/.*[:=：]\s*//g' | head -n1)
+    fi
 fi
 
+# fallback
+DOMAIN_LOWER=${DOMAIN_LOWER:-$dest_server}
+
+# 手动输入兜底
+if [[ -z "$DOMAIN_LOWER" ]]; then
+    print_info "自动获取失败，请手动输入域名"
+    read -p "请输入 DOMAIN_LOWER: " DOMAIN_LOWER
+
+    if [[ -z "$DOMAIN_LOWER" ]]; then
+        print_info "域名不能为空，退出"
+        exit 1
+    fi
+fi
+
+print_info "最终使用 DOMAIN_LOWER=${DOMAIN_LOWER}"
+
+# ===== 如果跳过 Web → 生成 nginx 反代配置模板 =====
+if [[ "$WEB_CHOICE" == "3" ]]; then
+
+cat << EOF > "$INSTALL_DIR/nginx.conf"
+
+location ${WS_PATH} {
+    proxy_redirect off;
+    proxy_pass http://127.0.0.1:9999;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+}
+
+location ${WS_PATH1} {
+    proxy_redirect off;
+    proxy_pass http://127.0.0.1:9998;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+}
+
+location ${WS_PATH2} {
+    proxy_request_buffering off;
+    proxy_redirect off;
+    proxy_pass http://127.0.0.1:9997;
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+}
+
+EOF
+
+    print_info "已生成 nginx 反代配置模板: $INSTALL_DIR/nginx.conf"
+fi
 # 生成 Clash Meta 配置片段
 cat << EOF > "$INSTALL_DIR/clash-meta.yaml"
-  - name: Reality
-    port: ${PORT}
-    server: ${PUBLIC_IP}
-    type: vless
-    network: tcp
-    udp: true
-    tls: true
-    servername: ${dest_server}
-    skip-cert-verify: true
-    reality-opts:
-      public-key: $(cat /usr/local/etc/xray/publickey)
-      short-id: ${short_id}
-    uuid: ${UUID}
-    flow: xtls-rprx-vision
-    client-fingerprint: chrome
+  
   - name: vmess-ws-tls
     type: vmess
     server: ${DOMAIN_LOWER}
@@ -544,6 +415,8 @@ cat << EOF > "$INSTALL_DIR/clash-meta.yaml"
         Host: ${DOMAIN_LOWER}
       path: ${WS_PATH1}
     servername: ${DOMAIN_LOWER}
+  
+  
 
 EOF
 
@@ -591,7 +464,7 @@ EOF
 
 # 生成分享链接（将 pbk 指向 publickey）
 share_link="
-vless://${UUID}@${link_ip}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${dest_server}&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=${short_id}&type=tcp&headerType=none#Reality
+
 vless://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&allowInsecure=1&type=ws&host=${DOMAIN_LOWER}&path=${WS_PATH1}#vless-ws-tls
 vmess://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&allowInsecure=1&type=ws&host=${DOMAIN_LOWER}&path=${WS_PATH}#vmess-ws-tls
 vless://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&type=xhttp&host=${DOMAIN_LOWER}&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
@@ -602,7 +475,7 @@ echo "${share_link}" > "$INSTALL_DIR/v2ray.txt"
 systemctl status xrayls --no-pager || true
 
 echo -e "\n${GREEN}安装完成，关键输出文件：${PLAIN}"
-echo " - /root/catmi/install_info.txt"
+echo " - $INSTALL_DIR/install_info.txt"
 echo " - $INSTALL_DIR/config.json"
 echo " - $INSTALL_DIR/v2ray.txt"
 echo " - /usr/local/etc/xray/privatekey (权限600)"
