@@ -166,8 +166,10 @@ mkdir -p /var/www/html
 mv index.html /var/www/html/
 chown -R caddy:caddy /var/www/html
 chmod -R 755 /var/www/html
+mkdir -p /run/xray
 chown -R caddy:caddy /run/xray
 chmod 755 /run/xray
+
 
 
 cat << EOF > /etc/caddy/Caddyfile
