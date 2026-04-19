@@ -193,8 +193,7 @@ getkey
 short_id=$(dd if=/dev/urandom bs=4 count=2 2>/dev/null | xxd -p -c 8)
 
 
-read -p "请输入 Vless 监听端口 (默认为 443): " NPORT
-NPORT=${PORT:-443}
+
 # 生成端口与路径
 PORT=$(generate_port "Reality (外部 TCP)")
 WS_PATH1=$(generate_ws_path)
