@@ -556,64 +556,65 @@ print_info "xrayls 服务已启动并正在运行"
 
 # ===== 安装逻辑 =====
 webxz() {
+    if [[ "$WEB_CHOICE" == "1" ]]; then
+        print_info "选择安装 Nginx..."
 
-if [[ "$WEB_CHOICE" == "1" ]]; then
-    print_info "选择安装 Nginx..."
+        if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh >/dev/null 2>&1; then
+            bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh) \
+            || print_info "nginx.sh 执行结束（非致命）"
+        else
+            print_info "无法下载 nginx.sh，跳过"
+        fi
+    fi
+
+    if [[ "$WEB_CHOICE" == "2" ]]; then
+        print_info "选择安装 Caddy..."
+        if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh >/dev/null 2>&1; then
+            bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh) \
+            || print_info "caddy.sh 执行结束（非致命）"
+        else
+            print_info "无法下载 caddy.sh，跳过"
+        fi
+    fi
+
+    if [[ "$WEB_CHOICE" == "3" ]]; then
+read -p "请输入你的域名 (DOMAIN_LOWER): " DOMAIN_LOWER
+
+cat << EOF > "$INSTALL_DIR/nginx.json"
     
-
-    if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh >/dev/null 2>&1; then
-        bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh) \
-        || print_info "nginx.sh 执行结束（非致命）"
-    else
-        print_info "无法下载 nginx.sh，跳过"
-    fi
-fi
-
-
-if [[ "$WEB_CHOICE" == "2" ]]; then
-    print_info "选择安装 Caddy..."
-    if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh >/dev/null 2>&1; then
-        bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh) \
-        || print_info "caddy.sh 执行结束（非致命）"
-    else
-        print_info "无法下载 caddy.sh，跳过"
-    fi
-fi
-
-if [[ "$WEB_CHOICE" == "3" ]]; then
-    cat << EOF > "$INSTALL_DIR/nginx.conf"
-   location ${WS_PATH} {
-    proxy_redirect off;
-    proxy_pass http://127.0.0.1:9999;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host \$host;
+    location ${WS_PATH} {
+            proxy_redirect off;
+            proxy_pass http://127.0.0.1:9999;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host \$host;
+        }
+        location ${WS_PATH1} {
+            proxy_redirect off;
+            proxy_pass http://127.0.0.1:9998;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host \$host;
+        }
+        location ${WS_PATH2} {
+        proxy_request_buffering      off;
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:9997;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 }
-
-location ${WS_PATH1} {
-    proxy_redirect off;
-    proxy_pass http://127.0.0.1:9998;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host \$host;
-}
-
-location ${WS_PATH2} {
-    proxy_request_buffering off;
-    proxy_redirect off;
-    proxy_pass http://127.0.0.1:9997;
-    proxy_http_version 1.1;
-    proxy_set_header Host \$host;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-}
-
 EOF
+    if [[ -z "$DOMAIN_LOWER" ]]; then
+        print_info "域名不能为空，请重新运行脚本"
+        exit 1
+    fi
 
-    print_info "已生成 nginx 反代配置模板: $INSTALL_DIR/nginx.conf"
+    print_info "已设置 DOMAIN_LOWER=${DOMAIN_LOWER}"
 fi
-}
+
 
     
 ssl_DOMAIN() {
