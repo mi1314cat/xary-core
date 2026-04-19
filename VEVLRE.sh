@@ -305,6 +305,7 @@ cat <<EOF > "$INSTALL_DIR/conf/outbounds.json"
   ]
 }
 EOF
+
 nx_inbounds() {
 cat <<EOF > "$INSTALL_DIR/conf/nx_inbounds.json"
 {
