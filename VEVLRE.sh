@@ -533,21 +533,6 @@ if ! systemctl restart xrayls; then
 fi
 print_info "xrayls 服务已启动并正在运行"
 }
-# 保存安装信息
-{
-    echo "xray 安装完成！"
-    echo "服务器地址：${PUBLIC_IP}"
-    echo "IP_CHOICE：${IP_CHOICE}"
-    echo "端口：${NPORT}"
-    echo "reality端口：${PORT}"
-    echo "UUID：${UUID}"
-    echo "UUID：${UUID2}"
-    echo "vless WS 路径：${WS_PATH1}"
-    echo "vmess WS 路径：${WS_PATH}"
-    echo "xhttp 路径：${WS_PATH2}"
-    echo "dest_server：${dest_server}"
-    echo "short_id：${short_id}"
-} > > "$INSTALL_DIR/install_info.txt"
 
 
 
@@ -925,6 +910,21 @@ usid
 xray_conf
 start_xray
 webxz
+
+{
+    echo "xray 安装完成！"
+    echo "服务器地址：${PUBLIC_IP}"
+    echo "IP_CHOICE：${IP_CHOICE}"
+    echo "端口：${NPORT}"
+    echo "reality端口：${PORT}"
+    echo "UUID：${UUID}"
+    echo "UUID：${UUID2}"
+    echo "vless WS 路径：${WS_PATH1}"
+    echo "vmess WS 路径：${WS_PATH}"
+    echo "xhttp 路径：${WS_PATH2}"
+    echo "dest_server：${dest_server}"
+    echo "short_id：${short_id}"
+} > "$INSTALL_DIR/install_info.txt"
 ssl_DOMAIN
 out_conf
 }
