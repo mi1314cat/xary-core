@@ -172,49 +172,45 @@ chmod 755 /run/xray
 read -p "请输入未cdn域名 " RDOMAIN_LOWE
 
 cat << EOF > /etc/caddy/Caddyfile
-$DOMAIN_LOWER $RDOMAIN_LOWE {
+${DOMAIN_LOWER} ${RDOMAIN_LOWE} {
+       reverse_proxy unix//run/xray/tls_gate.sock
 
-        bind unix//run/xray/tls_gate.sock
-
-        tls $CERT_PATH $KEY_PATH
+        tls ${CERT_PATH} ${KEY_PATH}
 
         log {
                 output file /var/log/caddy/access.log
         }
 
-        # 处理 CDN 传来的 XHTTP 流量 (对应客户端出站 3/4/5)
-        # 只有路径匹配 /your-xhttp-path (记得换成你自己的路径) 时，才转发给 Xray 内部 XHTTP 模块
-        handle /WS_PATH2  {
+        handle /${WS_PATH2} {
                 reverse_proxy unix//run/xray/xhttp_in.sock {
                         transport http {
                                 versions 2
                         }
                 }
         }
-        handle /WS_PATH1  {
+
+        handle /${WS_PATH1} {
                 reverse_proxy unix//run/xray/vless_in.sock {
                         transport http {
                                 versions 2
                         }
                 }
         }
-        handle /WS_PATH  {
+
+        handle /${WS_PATH} {
                 reverse_proxy unix//run/xray/vmess_in.sock {
                         transport http {
                                 versions 2
                         }
                 }
         }
-        
-        # 处理所有其他访问
-        # 可以简单搭建一个博客伪装为正常网页
-        # 或者跑个openlist，大流量小流量都有
+
         handle {
-                # 伪装站路径：/var/www/html/index.html
                 root * /var/www/html
                 file_server
         }
 }
+EOF
 systemctl restart caddy
 systemctl status caddy
 }
