@@ -190,21 +190,7 @@ ${DOMAIN_LOWER} ${RDOMAIN_LOWE} {
                 }
         }
 
-        handle /${WS_PATH1} {
-                reverse_proxy unix//run/xray/vless_in.sock {
-                        transport http {
-                                versions 2
-                        }
-                }
-        }
-
-        handle /${WS_PATH} {
-                reverse_proxy unix//run/xray/vmess_in.sock {
-                        transport http {
-                                versions 2
-                        }
-                }
-        }
+        
 
         handle {
                 root * /var/www/html
@@ -238,5 +224,7 @@ fi
 WS_PATH=$(grep '^vmess WS 路径' /root/catmi/install_info.txt | sed 's/.*[:：]//')
 WS_PATH1=$(grep '^vless WS 路径' /root/catmi/install_info.txt | sed 's/.*[:：]//')
 WS_PATH2=$(grep '^xhttp 路径' /root/catmi/install_info.txt | sed 's/.*[:：]//')
+RDOMAIN_LOWE=$(grep '^未cdn' /root/catmi/install_info.txt | sed 's/.*[:：]//')
+DOMAIN_LOWER=$(grep '^cdn' /root/catmi/install_info.txt | sed 's/.*[:：]//')
 ssl
 caddy_install
