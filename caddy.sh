@@ -173,7 +173,8 @@ read -p "请输入未cdn域名 " RDOMAIN_LOWE
 
 cat << EOF > /etc/caddy/Caddyfile
 ${DOMAIN_LOWER} ${RDOMAIN_LOWE} {
-       reverse_proxy unix//run/xray/tls_gate.sock
+       bind unix//run/xray/tls_gate.sock
+
 
         tls ${CERT_PATH} ${KEY_PATH}
 
