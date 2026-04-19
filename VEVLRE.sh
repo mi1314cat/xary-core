@@ -597,10 +597,10 @@ location ${WS_PATH2} {
     proxy_set_header Host \$host;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 }
+
 EOF
 
-    print_info "已生成 nginx 反代配置模板: $INSTALL_DIR/nginx.conf"
-fi
+    fi
 
     
 
