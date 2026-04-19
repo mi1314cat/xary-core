@@ -74,9 +74,11 @@ generate_ws_path() {
 }
 
 INSTALL_DIR="/root/catmi/xray"
-mkdir -p "$INSTALL_DIR" /usr/local/etc/xray /root/catmi $INSTALL_DIR/conf $INSTALL_DIR/log
+mkdir -p "$INSTALL_DIR"/{conf,log}
 echo "mox：xray" >> /root/catmi/install_info.txt
 
+
+# ================= 安装 Xray =================
 xray_install() {
 # 安装 xray（保留你原来的安装方式）
 print_info "安装最新 Xray..."
@@ -111,49 +113,8 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 EOF
 }
-webcn() {
-echo "请选择 Web 服务安装方式："
-echo "1. 安装 Nginx"
-echo "2. 安装 Caddy"
-echo "3. 跳过网页配置"
-read -p "请输入选项 (1/2/3): " WEB_CHOICE
-if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
-    nx_inbounds
-    read -p "请输入监听端口 (默认 443): " NPORT
-    NPORT=${NPORT:-443}
-    dest_server
-    
-elif [ "$WEB_CHOICE" = "2" ]; then
-    cx_inbounds
-fi
-}
-# 如果你依赖外部 domains 脚本来填充 /root/catmi/dest_server.txt，请执行
-dest_server() {
-if [ -x /bin/bash ]; then
-    # 靠你原脚本位置调用 domains.sh（容错）
-    if curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh >/dev/null 2>&1; then
-        bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh) || print_info "domains.sh 执行结束（非致命）"
-    else
-        print_info "无法下载 domains.sh（可能离线），跳过该步骤"
-    fi
-fi
 
-# 读取 dest_server，容错处理
-dest_server=""
-if [ -f /root/catmi/dest_server.txt ]; then
-    dest_server=$(grep -Eo '[:：]\s*[^[:space:]]+' /root/catmi/dest_server.txt | sed 's/[:：]\s*//g' | head -n1)
-    # 也尝试直接读取整行 key=value
-    if [ -z "$dest_server" ]; then
-        dest_server=$(grep -E '^dest_server' /root/catmi/dest_server.txt 2>/dev/null | sed 's/.*[:=：]\s*//g' | head -n1)
-    fi
-fi
-
-if [ -z "$dest_server" ]; then
-    print_error "未检测到有效的 dest_server（/root/catmi/dest_server.txt），请先确保文件存在并包含 dest_server: your.domain"
-    exit 1
-fi
-print_info "目标域名 dest_server=$dest_server"
-}
+# ================= Reality 密钥 =================
 getkey() {
     echo "[Info] 正在生成 Reality 密钥对，请耐心等待..."
 
@@ -193,8 +154,7 @@ getkey() {
     echo "Password  : $password"
     echo "Hash32    : $hash32"
 }
-
-
+# ================= 参数生成 =================
 usid() {
 # 生成短 id
 short_id=$(dd if=/dev/urandom bs=4 count=2 2>/dev/null | xxd -p -c 8)
@@ -250,7 +210,129 @@ else
 fi
 
 print_info "选定公网 IP: $PUBLIC_IP"
+
+{
+    echo "服务器地址：${PUBLIC_IP}"
+    echo "IP_CHOICE：${IP_CHOICE}"
+    echo "端口：${NPORT}"
+    echo "reality端口：${PORT}"
+    echo "UUID：${UUID}"
+    echo "UUID：${UUID2}"
+    echo "vless WS 路径：${WS_PATH1}"
+    echo "vmess WS 路径：${WS_PATH}"
+    echo "xhttp 路径：${WS_PATH2}"
+    echo "short_id：${short_id}"
+} > "$INSTALL_DIR/install_info.txt"
 }
+
+# ================= Web 选择 =================
+webcn() {
+echo "请选择 Web 服务安装方式："
+echo "1. 安装 Nginx"
+echo "2. 安装 Caddy"
+echo "3. 跳过网页配置"
+read -p "请输入选项 (1/2/3): " WEB_CHOICE
+if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
+    nx_inbounds
+    read -p "请输入监听端口 (默认 443): " NPORT
+    NPORT=${NPORT:-443}
+    dest_server
+    
+elif [ "$WEB_CHOICE" = "2" ]; then
+    cx_inbounds
+    read -p "请输入未cdn域名 " RDOMAIN_LOWE
+    read -p "请输入申请证书的域名: " DOMAIN_LOWER    
+    echo "cdn：${DOMAIN_LOWER}" >> "$INSTALL_DIR/install_info.txt"
+    echo "未cdn：${RDOMAIN_LOWE}" >> "$INSTALL_DIR/install_info.txt"
+fi
+}
+dest_server() {
+if [ -x /bin/bash ]; then
+    # 靠你原脚本位置调用 domains.sh（容错）
+    if curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh >/dev/null 2>&1; then
+        bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh) || print_info "domains.sh 执行结束（非致命）"
+    else
+        print_info "无法下载 domains.sh（可能离线），跳过该步骤"
+    fi
+fi
+
+# 读取 dest_server，容错处理
+dest_server=""
+if [ -f /root/catmi/dest_server.txt ]; then
+    dest_server=$(grep -Eo '[:：]\s*[^[:space:]]+' /root/catmi/dest_server.txt | sed 's/[:：]\s*//g' | head -n1)
+    # 也尝试直接读取整行 key=value
+    if [ -z "$dest_server" ]; then
+        dest_server=$(grep -E '^dest_server' /root/catmi/dest_server.txt 2>/dev/null | sed 's/.*[:=：]\s*//g' | head -n1)
+    fi
+fi
+
+if [ -z "$dest_server" ]; then
+    print_error "未检测到有效的 dest_server（/root/catmi/dest_server.txt），请先确保文件存在并包含 dest_server: your.domain"
+    exit 1
+fi
+print_info "目标域名 dest_server=$dest_server"
+}
+webxz() {
+    if [[ "$WEB_CHOICE" == "1" ]]; then
+        print_info "选择安装 Nginx..."
+
+        if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh >/dev/null 2>&1; then
+            bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh) \
+            || print_info "nginx.sh 执行结束（非致命）"
+        else
+            print_info "无法下载 nginx.sh，跳过"
+        fi
+    fi
+
+    if [[ "$WEB_CHOICE" == "2" ]]; then
+        print_info "选择安装 Caddy..."
+        if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh >/dev/null 2>&1; then
+            bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh) \
+            || print_info "caddy.sh 执行结束（非致命）"
+        else
+            print_info "无法下载 caddy.sh，跳过"
+        fi
+    fi
+
+    if [[ "$WEB_CHOICE" == "3" ]]; then
+read -p "请输入你的域名 (DOMAIN_LOWER): " DOMAIN_LOWER
+
+cat << EOF > "$INSTALL_DIR/nginx.json"
+    
+    location ${WS_PATH} {
+            proxy_redirect off;
+            proxy_pass http://127.0.0.1:9999;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host \$host;
+        }
+        location ${WS_PATH1} {
+            proxy_redirect off;
+            proxy_pass http://127.0.0.1:9998;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host \$host;
+        }
+        location ${WS_PATH2} {
+        proxy_request_buffering      off;
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:9997;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+}
+EOF
+    if [[ -z "$DOMAIN_LOWER" ]]; then
+        print_info "域名不能为空，请重新运行脚本"
+        exit 1
+    fi
+
+    print_info "已设置 DOMAIN_LOWER=${DOMAIN_LOWER}"
+fi
+}
+# ================= Xray 配置 =================
 xray_conf() {
 # 生成 xray config.json（含多个 inbound）
 cat <<EOF > "$INSTALL_DIR/conf/log.json"
@@ -431,12 +513,9 @@ EOF
 }
 
 cx_inbounds() {
-read -p "请输入未cdn域名 " RDOMAIN_LOWE
-read -p "请输入申请证书的域名: " DOMAIN_LOWER    
-echo "cdn：${DOMAIN_LOWER}" >> "$INSTALL_DIR/install_info.txt"
-echo "未cdn：${RDOMAIN_LOWE}" >> "$INSTALL_DIR/install_info.txt"
+
 cat <<EOF > "$INSTALL_DIR/conf/cx_inbounds.json"
-{
+ {
    "inbounds": [
       {
          "listen": "0.0.0.0",
@@ -518,10 +597,14 @@ cat <<EOF > "$INSTALL_DIR/conf/cx_inbounds.json"
          "tag": "XHTTP_INBOUND"
       }
    ]
-}
-EOF 
+ }
+
+EOF
+ 
 }
 
+
+# ================= 启动 =================
 start_xray() {
 # 重新加载 systemd 并启动服务
 systemctl daemon-reload
@@ -534,306 +617,7 @@ fi
 print_info "xrayls 服务已启动并正在运行"
 }
 
-
-
-
-
-
-# ===== 安装逻辑 =====
-webxz() {
-    if [[ "$WEB_CHOICE" == "1" ]]; then
-        print_info "选择安装 Nginx..."
-
-        if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh >/dev/null 2>&1; then
-            bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh) \
-            || print_info "nginx.sh 执行结束（非致命）"
-        else
-            print_info "无法下载 nginx.sh，跳过"
-        fi
-    fi
-
-    if [[ "$WEB_CHOICE" == "2" ]]; then
-        print_info "选择安装 Caddy..."
-        if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh >/dev/null 2>&1; then
-            bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh) \
-            || print_info "caddy.sh 执行结束（非致命）"
-        else
-            print_info "无法下载 caddy.sh，跳过"
-        fi
-    fi
-
-    if [[ "$WEB_CHOICE" == "3" ]]; then
-read -p "请输入你的域名 (DOMAIN_LOWER): " DOMAIN_LOWER
-
-cat << EOF > "$INSTALL_DIR/nginx.json"
-    
-    location ${WS_PATH} {
-            proxy_redirect off;
-            proxy_pass http://127.0.0.1:9999;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade \$http_upgrade;
-            proxy_set_header Connection "upgrade";
-            proxy_set_header Host \$host;
-        }
-        location ${WS_PATH1} {
-            proxy_redirect off;
-            proxy_pass http://127.0.0.1:9998;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade \$http_upgrade;
-            proxy_set_header Connection "upgrade";
-            proxy_set_header Host \$host;
-        }
-        location ${WS_PATH2} {
-        proxy_request_buffering      off;
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:9997;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-}
-EOF
-    if [[ -z "$DOMAIN_LOWER" ]]; then
-        print_info "域名不能为空，请重新运行脚本"
-        exit 1
-    fi
-
-    print_info "已设置 DOMAIN_LOWER=${DOMAIN_LOWER}"
-fi
-
-
-    
-ssl_DOMAIN() {
-# ===== 统一 DOMAIN_LOWER 获取（无论选哪个都要）=====
-print_info "尝试读取 DOMAIN_LOWER..."
-
-DOMAIN_LOWER=""
-
-if [ -f /root/catmi/DOMAIN_LOWER.txt ]; then
-    DOMAIN_LOWER=$(grep -Eo '[:：]\s*[^[:space:]]+' /root/catmi/DOMAIN_LOWER.txt | sed 's/[:：]\s*//g' | head -n1)
-
-    if [ -z "$DOMAIN_LOWER" ]; then
-        DOMAIN_LOWER=$(grep -E '^DOMAIN_LOWER' /root/catmi/DOMAIN_LOWER.txt 2>/dev/null | sed 's/.*[:=：]\s*//g' | head -n1)
-    fi
-fi
-
-# fallback
-DOMAIN_LOWER=${DOMAIN_LOWER:-$dest_server}
-
-# 手动输入兜底
-if [[ -z "$DOMAIN_LOWER" ]]; then
-    print_info "自动获取失败，请手动输入域名"
-    read -p "请输入 DOMAIN_LOWER: " DOMAIN_LOWER
-
-    if [[ -z "$DOMAIN_LOWER" ]]; then
-        print_info "域名不能为空，退出"
-        exit 1
-    fi
-fi
-
-print_info "最终使用 DOMAIN_LOWER=${DOMAIN_LOWER}"
-
-# ===== 如果跳过 Web → 生成 nginx 反代配置模板 =====
-if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
-    n_meta
-elif [ "$WEB_CHOICE" = "2" ]; then
-    c_meta
-fi
-}
-# 生成 Clash Meta 配置片段
-n_meta() {
-cat << EOF > "$INSTALL_DIR/clash-meta.yaml"
-  - name: Reality
-    port: ${PORT}
-    server: ${PUBLIC_IP}
-    type: vless
-    network: tcp
-    udp: true
-    tls: true
-    servername: ${dest_server}
-    skip-cert-verify: true
-    reality-opts:
-      public-key: $(cat /usr/local/etc/xray/publickey)
-      short-id: ${short_id}
-    uuid: ${UUID}
-    flow: xtls-rprx-vision
-    client-fingerprint: chrome
-  - name: vmess-ws-tls
-    type: vmess
-    server: ${DOMAIN_LOWER}
-    port: 443
-    cipher: auto
-    uuid: ${UUID}
-    alterId: 0
-    tls: true
-    network: ws
-    ws-opts:
-      path: ${WS_PATH}
-      headers:
-        Host: ${DOMAIN_LOWER}
-    servername: ${DOMAIN_LOWER}
-  - name: vless-ws-tls
-    type: vless
-    server: ${DOMAIN_LOWER}
-    port: 443
-    uuid: ${UUID}
-    tls: true
-    skip-cert-verify: true
-    network: ws
-    alterId: 0
-    cipher: auto
-    ws-opts:
-      headers:
-        Host: ${DOMAIN_LOWER}
-      path: ${WS_PATH1}
-    servername: ${DOMAIN_LOWER}
-  
-  
-
-EOF
-}
-c_meta() {
-cat << EOF > "$INSTALL_DIR/clash-meta.yaml"
-
-proxies:
-  - name: 出站1-XTLS+Reality
-    type: vless
-    server: "${PUBLIC_IP}"
-    port: 443
-    uuid: ${UUID}
-    encryption: none
-    flow: xtls-rprx-vision
-    network: tcp
-    tls: true
-    alpn:
-      - h2
-    servername: "${RDOMAIN_LOWE}"
-    client-fingerprint: chrome
-    reality-opts:
-      public-key: $(cat /usr/local/etc/xray/publickey)
-      short-id: ${short_id}
-  - name: 出站2-xhttp+Reality
-    type: vless
-    server: "${PUBLIC_IP}"
-    port: 443
-    uuid: ${UUID2}
-    encryption: none
-    flow: ""
-    network: xhttp
-    tls: true
-    alpn:
-      - h2
-    servername: "${RDOMAIN_LOWE}"
-    client-fingerprint: chrome
-    reality-opts:
-      public-key:  $(cat /usr/local/etc/xray/publickey)
-      short-id: ${short_id}
-    xhttp-opts:
-      path: ${WS_PATH2}
-      mode: auto
-      reuse-settings:
-        max-concurrency: 16-32
-        c-max-reuse-times: "0"
-        h-max-reusable-secs: 1800-3000
-  - name: 出站3-cdn上行+xhttp下行
-    type: vless
-    server: ${DOMAIN_LOWER}
-    port: 443
-    uuid: ${UUID2}
-    encryption: none
-    flow: ""
-    network: xhttp
-    tls: true
-    alpn:
-      - h2
-    servername: ${DOMAIN_LOWER}
-    client-fingerprint: chrome
-    skip-cert-verify: true
-    xhttp-opts:
-      host: ${DOMAIN_LOWER}
-      path: ${WS_PATH2}
-      mode: auto
-      reuse-settings:
-        max-concurrency: 16-32
-        c-max-reuse-times: "0"
-        h-max-reusable-secs: 1800-3000
-      download-settings:
-        server: ${PUBLIC_IP}
-        port: 443
-        servername: "${RDOMAIN_LOWE}"
-        reality-opts:
-          public-key:  $(cat /usr/local/etc/xray/publickey)
-          short-id: ${short_id}
-        reuse-settings:
-          max-concurrency: 16-32
-          c-max-reuse-times: "0"
-          h-max-reusable-secs: 1800-3000
-  - name: 出站4-cdn上下行
-    type: vless
-    server: ${DOMAIN_LOWER}
-    port: 443
-    uuid: ${UUID2}
-    encryption: none
-    flow: ""
-    network: xhttp
-    tls: true
-    alpn:
-      - h2
-    servername: ${DOMAIN_LOWER}
-    client-fingerprint: chrome
-    skip-cert-verify: true
-    xhttp-opts:
-      host: ${DOMAIN_LOWER}
-      path: ${WS_PATH2}
-      mode: auto
-      reuse-settings:
-        max-concurrency: 16-32
-        c-max-reuse-times: "0"
-        h-max-reusable-secs: 1800-3000
-  - name: 出站5-上xhttp+Reality下xhttp+TLS+CDN
-    type: vless
-    server: YOUR_VPS_IP
-    port: 443
-    uuid: ${UUID2}
-    encryption: none
-    flow: ""
-    network: xhttp
-    tls: true
-    alpn:
-      - h2
-    servername: "${RDOMAIN_LOWE}"
-    client-fingerprint: chrome
-    skip-cert-verify: true
-    reality-opts:
-      public-key:  $(cat /usr/local/etc/xray/publickey)
-      short-id: ${short_id}
-    xhttp-opts:
-      host: ${DOMAIN_LOWER}
-      path: ${WS_PATH2}
-      mode: auto
-      reuse-settings:
-        max-concurrency: 16-32
-        c-max-reuse-times: "0"
-        h-max-reusable-secs: 1800-3000
-      download-settings:
-        path: ${WS_PATH2}
-        host: ""
-        server: ${DOMAIN_LOWER}
-        port: 443
-        tls: true
-        alpn:
-          - h2
-        servername: ${DOMAIN_LOWER}
-        client-fingerprint: chrome
-        skip-cert-verify: true
-        reality-opts:
-          public-key: ""
-        reuse-settings:
-          max-concurrency: 16-32
-          c-max-reuse-times: "0"
-          h-max-reusable-secs: 1800-3000
-
-EOF
-}
+# ================= 输出 =================
 out_conf() {
 # 生成 xhttp.json（仅保留一个正确的 JSON）
 cat <<EOF > "$INSTALL_DIR/xhttp.json"
@@ -901,32 +685,18 @@ echo " - $INSTALL_DIR/xhttp.json"
 echo -e "\n分享链接（保存在 $INSTALL_DIR/v2ray.txt）："
 cat "$INSTALL_DIR/v2ray.txt"
 }
-main() {
-    
-xray_install
-webcn
-getkey
-usid
-xray_conf
-start_xray
-webxz
 
-{
-    echo "xray 安装完成！"
-    echo "服务器地址：${PUBLIC_IP}"
-    echo "IP_CHOICE：${IP_CHOICE}"
-    echo "端口：${NPORT}"
-    echo "reality端口：${PORT}"
-    echo "UUID：${UUID}"
-    echo "UUID：${UUID2}"
-    echo "vless WS 路径：${WS_PATH1}"
-    echo "vmess WS 路径：${WS_PATH}"
-    echo "xhttp 路径：${WS_PATH2}"
-    echo "dest_server：${dest_server}"
-    echo "short_id：${short_id}"
-} > "$INSTALL_DIR/install_info.txt"
-ssl_DOMAIN
-out_conf
+# ================= 主流程 =================
+main(){
+    xray_install
+    getkey
+    usid
+    webcn
+    webxz
+    xray_conf
+    start_xray
+    out_conf
+    print_info "完成"
 }
 
 main
