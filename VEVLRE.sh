@@ -580,10 +580,9 @@ if [[ "$WEB_CHOICE" == "2" ]]; then
     fi
 fi
 
-
 if [[ "$WEB_CHOICE" == "3" ]]; then
     cat << EOF > "$INSTALL_DIR/nginx.conf"
-location ${WS_PATH} {
+   location ${WS_PATH} {
     proxy_redirect off;
     proxy_pass http://127.0.0.1:9999;
     proxy_http_version 1.1;
@@ -609,12 +608,13 @@ location ${WS_PATH2} {
     proxy_set_header Host \$host;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 }
+
 EOF
 
     print_info "已生成 nginx 反代配置模板: $INSTALL_DIR/nginx.conf"
 fi
-
 }
+
     
 ssl_DOMAIN() {
 # ===== 统一 DOMAIN_LOWER 获取（无论选哪个都要）=====
