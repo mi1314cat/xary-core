@@ -111,8 +111,7 @@ ufw disable
 # 创建目录
 mkdir -p "$CERT_DIR"
 
-# 输入域名（可以扩展做记录或校验）
-read -p "请输入申请证书的域名: " DOMAIN_LOWER
+
 
 # 输入证书内容
 echo "📄 请粘贴你的证书内容（以 -----BEGIN CERTIFICATE----- 开头），输入完后按 Ctrl+D："
@@ -226,5 +225,10 @@ WS_PATH1=$(grep '^vless WS 路径' /root/catmi/install_info.txt | sed 's/.*[:：
 WS_PATH2=$(grep '^xhttp 路径' /root/catmi/install_info.txt | sed 's/.*[:：]//')
 RDOMAIN_LOWE=$(grep '^未cdn' /root/catmi/install_info.txt | sed 's/.*[:：]//')
 DOMAIN_LOWER=$(grep '^cdn' /root/catmi/install_info.txt | sed 's/.*[:：]//')
+{
+
+    echo "DOMAIN_LOWER：${DOMAIN_LOWER}"
+    
+} > "/root/catmi/DOMAIN_LOWER.txt"
 ssl
 caddy_install
