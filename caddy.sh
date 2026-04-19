@@ -168,7 +168,7 @@ chown -R caddy:caddy /var/www/html
 chmod -R 755 /var/www/html
 chown -R caddy:caddy /run/xray
 chmod 755 /run/xray
-read -p "请输入未cdn域名 " RDOMAIN_LOWE
+
 
 cat << EOF > /etc/caddy/Caddyfile
 ${DOMAIN_LOWER} ${RDOMAIN_LOWE} {
