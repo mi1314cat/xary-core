@@ -415,22 +415,88 @@ print_info "xrayls 服务已启动并正在运行"
     echo "short_id：${short_id}"
 } > "/root/catmi/install_info.txt"
 
-# 如果需要 nginx (你原脚本调用)，保留调用（容错）
-if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh >/dev/null 2>&1; then
-    bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh) || print_info "nginx.sh 执行结束（非致命）"
-else
-    print_info "无法下载 nginx.sh，跳过 nginx 配置"
-fi
+# 询问是否安装 nginx
+read -p "是否安装 Nginx? (y/n): " INSTALL_NGINX
 
-# DOMAIN_LOWER 读取（容错）
-DOMAIN_LOWER=""
-if [ -f /root/catmi/DOMAIN_LOWER.txt ]; then
-    DOMAIN_LOWER=$(grep -Eo '[:：]\s*[^[:space:]]+' /root/catmi/DOMAIN_LOWER.txt | sed 's/[:：]\s*//g' | head -n1)
-    if [ -z "$DOMAIN_LOWER" ]; then
-        DOMAIN_LOWER=$(grep -E '^DOMAIN_LOWER' /root/catmi/DOMAIN_LOWER.txt 2>/dev/null | sed 's/.*[:=：]\s*//g' | head -n1)
+if [[ "$INSTALL_NGINX" == "y" || "$INSTALL_NGINX" == "Y" ]]; then
+    print_info "开始安装并配置 Nginx..."
+
+    # ===== 先执行 nginx =====
+    if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh >/dev/null 2>&1; then
+        bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh) \
+        || print_info "nginx.sh 执行结束（非致命）"
+    else
+        print_info "无法下载 nginx.sh，跳过 nginx 配置"
     fi
+
+    # ===== 再读取 DOMAIN_LOWER（容错）=====
+    print_info "尝试读取 DOMAIN_LOWER..."
+
+    DOMAIN_LOWER=""
+    if [ -f /root/catmi/DOMAIN_LOWER.txt ]; then
+        DOMAIN_LOWER=$(grep -Eo '[:：]\s*[^[:space:]]+' /root/catmi/DOMAIN_LOWER.txt | sed 's/[:：]\s*//g' | head -n1)
+
+        if [ -z "$DOMAIN_LOWER" ]; then
+            DOMAIN_LOWER=$(grep -E '^DOMAIN_LOWER' /root/catmi/DOMAIN_LOWER.txt 2>/dev/null | sed 's/.*[:=：]\s*//g' | head -n1)
+        fi
+    fi
+
+    # fallback
+    DOMAIN_LOWER=${DOMAIN_LOWER:-$dest_server}
+
+    # 如果还是空 → 手动输入（兜底）
+    if [[ -z "$DOMAIN_LOWER" ]]; then
+        print_info "自动获取失败，请手动输入域名"
+        read -p "请输入 DOMAIN_LOWER: " DOMAIN_LOWER
+
+        if [[ -z "$DOMAIN_LOWER" ]]; then
+            print_info "域名不能为空，退出"
+            exit 1
+        fi
+    fi
+
+    print_info "最终使用 DOMAIN_LOWER=${DOMAIN_LOWER}"
+
+else
+    print_info "已选择不安装 Nginx"
+
+    # ===== 不安装 → 直接手动输入 =====
+    read -p "请输入你的域名 (DOMAIN_LOWER): " DOMAIN_LOWER
+
+cat << EOF > "$INSTALL_DIR/nginx.json"
+    
+    location ${WS_PATH} {
+            proxy_redirect off;
+            proxy_pass http://127.0.0.1:9999;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host \$host;
+        }
+        location ${WS_PATH1} {
+            proxy_redirect off;
+            proxy_pass http://127.0.0.1:9998;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host \$host;
+        }
+        location ${WS_PATH2} {
+        proxy_request_buffering      off;
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:9997;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+}
+EOF
+    if [[ -z "$DOMAIN_LOWER" ]]; then
+        print_info "域名不能为空，请重新运行脚本"
+        exit 1
+    fi
+
+    print_info "已设置 DOMAIN_LOWER=${DOMAIN_LOWER}"
 fi
-DOMAIN_LOWER=${DOMAIN_LOWER:-$dest_server}
 
 # 生成 Clash Meta 配置片段
 cat << EOF > "$INSTALL_DIR/clash-meta.yaml"
