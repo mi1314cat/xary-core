@@ -77,6 +77,7 @@ INSTALL_DIR="/root/catmi/xray"
 mkdir -p "$INSTALL_DIR" /usr/local/etc/xray /root/catmi $INSTALL_DIR/conf $INSTALL_DIR/log
 echo "mox：xray" >> /root/catmi/install_info.txt
 
+xray_install() {
 # 安装 xray（保留你原来的安装方式）
 print_info "安装最新 Xray..."
 if ! bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; then
@@ -109,7 +110,8 @@ LimitNOFILE=65536
 [Install]
 WantedBy=multi-user.target
 EOF
-
+}
+webcn() {
 echo "请选择 Web 服务安装方式："
 echo "1. 安装 Nginx"
 echo "2. 安装 Caddy"
@@ -119,11 +121,14 @@ if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
     nx_inbounds
     read -p "请输入监听端口 (默认 443): " NPORT
     NPORT=${NPORT:-443}
+    dest_server
     
 elif [ "$WEB_CHOICE" = "2" ]; then
     cx_inbounds
 fi
+}
 # 如果你依赖外部 domains 脚本来填充 /root/catmi/dest_server.txt，请执行
+dest_server() {
 if [ -x /bin/bash ]; then
     # 靠你原脚本位置调用 domains.sh（容错）
     if curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh >/dev/null 2>&1; then
@@ -148,6 +153,7 @@ if [ -z "$dest_server" ]; then
     exit 1
 fi
 print_info "目标域名 dest_server=$dest_server"
+}
 getkey() {
     echo "[Info] 正在生成 Reality 密钥对，请耐心等待..."
 
@@ -187,8 +193,9 @@ getkey() {
     echo "Password  : $password"
     echo "Hash32    : $hash32"
 }
-getkey
 
+
+usid() {
 # 生成短 id
 short_id=$(dd if=/dev/urandom bs=4 count=2 2>/dev/null | xxd -p -c 8)
 
@@ -243,8 +250,8 @@ else
 fi
 
 print_info "选定公网 IP: $PUBLIC_IP"
-
-
+}
+xray_conf() {
 # 生成 xray config.json（含多个 inbound）
 cat <<EOF > "$INSTALL_DIR/conf/log.json"
 {
@@ -305,7 +312,7 @@ cat <<EOF > "$INSTALL_DIR/conf/outbounds.json"
   ]
 }
 EOF
-
+}
 nx_inbounds() {
 cat <<EOF > "$INSTALL_DIR/conf/nx_inbounds.json"
 {
@@ -515,7 +522,7 @@ cat <<EOF > "$INSTALL_DIR/conf/cx_inbounds.json"
 EOF 
 }
 
-
+start_xray() {
 # 重新加载 systemd 并启动服务
 systemctl daemon-reload
 systemctl enable xrayls
@@ -525,7 +532,7 @@ if ! systemctl restart xrayls; then
     exit 1
 fi
 print_info "xrayls 服务已启动并正在运行"
-
+}
 # 保存安装信息
 {
     echo "xray 安装完成！"
@@ -548,10 +555,11 @@ print_info "xrayls 服务已启动并正在运行"
 
 
 # ===== 安装逻辑 =====
-
+webxz() {
 
 if [[ "$WEB_CHOICE" == "1" ]]; then
     print_info "选择安装 Nginx..."
+    
 
     if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh >/dev/null 2>&1; then
         bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh) \
@@ -559,18 +567,21 @@ if [[ "$WEB_CHOICE" == "1" ]]; then
     else
         print_info "无法下载 nginx.sh，跳过"
     fi
+fi
 
-elif [[ "$WEB_CHOICE" == "2" ]]; then
+
+if [[ "$WEB_CHOICE" == "2" ]]; then
     print_info "选择安装 Caddy..."
-
     if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh >/dev/null 2>&1; then
         bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh) \
         || print_info "caddy.sh 执行结束（非致命）"
     else
         print_info "无法下载 caddy.sh，跳过"
     fi
+fi
 
-elif [[ "$WEB_CHOICE" == "3" ]]; then
+
+if [[ "$WEB_CHOICE" == "3" ]]; then
     cat << EOF > "$INSTALL_DIR/nginx.conf"
 location ${WS_PATH} {
     proxy_redirect off;
@@ -598,13 +609,14 @@ location ${WS_PATH2} {
     proxy_set_header Host \$host;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 }
-
 EOF
 
-    fi
+    print_info "已生成 nginx 反代配置模板: $INSTALL_DIR/nginx.conf"
+fi
 
+}
     
-
+ssl_DOMAIN() {
 # ===== 统一 DOMAIN_LOWER 获取（无论选哪个都要）=====
 print_info "尝试读取 DOMAIN_LOWER..."
 
@@ -640,7 +652,7 @@ if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
 elif [ "$WEB_CHOICE" = "2" ]; then
     c_meta
 fi
-
+}
 # 生成 Clash Meta 配置片段
 n_meta() {
 cat << EOF > "$INSTALL_DIR/clash-meta.yaml"
@@ -836,7 +848,7 @@ proxies:
 
 EOF
 }
-
+out_conf() {
 # 生成 xhttp.json（仅保留一个正确的 JSON）
 cat <<EOF > "$INSTALL_DIR/xhttp.json"
 {
@@ -902,3 +914,18 @@ echo " - $INSTALL_DIR/xhttp.json"
 
 echo -e "\n分享链接（保存在 $INSTALL_DIR/v2ray.txt）："
 cat "$INSTALL_DIR/v2ray.txt"
+}
+main() {
+    
+xray_install
+webcn
+getkey
+usid
+xray_conf
+start_xray
+webxz
+ssl_DOMAIN
+out_conf
+}
+
+main
