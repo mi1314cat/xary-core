@@ -551,7 +551,6 @@ print_info "xrayls 服务已启动并正在运行"
 
 if [[ "$WEB_CHOICE" == "1" ]]; then
     print_info "选择安装 Nginx..."
-    
 
     if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh >/dev/null 2>&1; then
         bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh) \
@@ -559,21 +558,18 @@ if [[ "$WEB_CHOICE" == "1" ]]; then
     else
         print_info "无法下载 nginx.sh，跳过"
     fi
-fi
 
-
-if [[ "$WEB_CHOICE" == "2" ]]; then
+elif [[ "$WEB_CHOICE" == "2" ]]; then
     print_info "选择安装 Caddy..."
+
     if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh >/dev/null 2>&1; then
         bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh) \
         || print_info "caddy.sh 执行结束（非致命）"
     else
         print_info "无法下载 caddy.sh，跳过"
     fi
-fi
 
-
-if [[ "$WEB_CHOICE" == "3" ]]; then
+elif [[ "$WEB_CHOICE" == "3" ]]; then
     cat << EOF > "$INSTALL_DIR/nginx.conf"
 location ${WS_PATH} {
     proxy_redirect off;
@@ -605,7 +601,6 @@ EOF
 
     print_info "已生成 nginx 反代配置模板: $INSTALL_DIR/nginx.conf"
 fi
-
 
     
 
