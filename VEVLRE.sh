@@ -233,17 +233,18 @@ echo "2. 安装 Caddy"
 echo "3. 跳过网页配置"
 read -p "请输入选项 (1/2/3): " WEB_CHOICE
 if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
-    nx_inbounds
+    
     read -p "请输入监听端口 (默认 443): " NPORT
     NPORT=${NPORT:-443}
     dest_server
-    
+    nx_inbounds
 elif [ "$WEB_CHOICE" = "2" ]; then
-    cx_inbounds
+    
     read -p "请输入未cdn域名 " RDOMAIN_LOWE
     read -p "请输入申请证书的域名: " DOMAIN_LOWER    
     echo "cdn：${DOMAIN_LOWER}" >> "$INSTALL_DIR/install_info.txt"
     echo "未cdn：${RDOMAIN_LOWE}" >> "$INSTALL_DIR/install_info.txt"
+    cx_inbounds
 fi
 }
 dest_server() {
