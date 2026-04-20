@@ -929,7 +929,6 @@ main(){
     usid
     webcn
     webxz
-    xray_conf
     start_xray
     clash_conf
     out_conf
