@@ -30,11 +30,7 @@ echo "1) 有80和443端口"
 echo "2) 无80 443端口"
 read -p "请输入选项 (1 或 2): " choice
 
-# 提示用户输入域名和电子邮件地址
-read -p "请输入域名: " DOMAIN
 
-# 将用户输入的域名转换为小写
-DOMAIN_LOWER=$(echo "$DOMAIN" | tr '[:upper:]' '[:lower:]')
 
 read -p "请输入电子邮件地址: " EMAIL
 
@@ -132,8 +128,7 @@ ufw disable
 # 创建目录
 mkdir -p "$CERT_DIR"
 
-# 输入域名（可以扩展做记录或校验）
-read -p "请输入申请证书的域名: " DOMAIN_LOWER
+
 
 # 输入证书内容
 echo "📄 请粘贴你的证书内容（以 -----BEGIN CERTIFICATE----- 开头），输入完后按 Ctrl+D："
@@ -200,7 +195,7 @@ http {
     gzip on;
 
     server {
-        listen $VALUE${PORT} ssl http2;
+        listen $VALUE${NPORT} ssl http2;
         server_name ${DOMAIN_LOWER};
 
         ssl_certificate       "${CERT_PATH}";
@@ -262,11 +257,7 @@ EOF
 
 mox=$(grep '^mox' /root/catmi/install_info.txt | sed 's/.*[:：]//')
 NINSTALL_DIR="/root/catmi/$mox"
-PORT=$(grep '^端口' $NINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
-WS_PATH=$(grep '^vmess WS 路径' $NINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
-WS_PATH1=$(grep '^vless WS 路径' $NINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
-WS_PATH2=$(grep '^xhttp 路径' $NINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
-DOMAIN_LOWER=$(grep '^cdn' $NINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
+source "$INSTALL_DIR/install_info.env"
 ipsl
 
 echo "请选择要申请证书的方式:"
