@@ -916,7 +916,7 @@ if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
     
     n_meta
 elif [ "$WEB_CHOICE" = "2" ]; then
-    
+    PORT=443
     c_meta
 fi
 }
@@ -929,8 +929,9 @@ main(){
     webxz
     xray_conf
     start_xray
-    out_conf
     clash_conf
+    out_conf
+    
     print_info "完成"
 }
 
