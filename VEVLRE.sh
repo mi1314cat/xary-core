@@ -261,16 +261,17 @@ if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
     
     dest_server
     PORT=$(generate_port "Reality (外部 TCP)")
-    update_env PORT "PORT"
+    update_env PORT "$PORT"
     read -p "请输入申请证书的域名: " DOMAIN_LOWER   
-    update_env DOMAIN_LOWER "DOMAIN_LOWER"
+    update_env DOMAIN_LOWER "$DOMAIN_LOWER"
     bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/nconf.sh)
 elif [ "$WEB_CHOICE" = "2" ]; then
-    
+    PORT=443
+    update_env PORT "$PORT"
     read -p "请输入未cdn域名 " RDOMAIN_LOWE
     read -p "请输入申请证书的域名: " DOMAIN_LOWER    
-    update_env DOMAIN_LOWER "DOMAIN_LOWER"
-    update_env RDOMAIN_LOWE "RDOMAIN_LOWE"
+    update_env DOMAIN_LOWER "$DOMAIN_LOWER"
+    update_env RDOMAIN_LOWE "$RDOMAIN_LOWE"
 
     bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/cconf.sh)
 fi
