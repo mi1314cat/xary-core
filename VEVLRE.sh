@@ -713,7 +713,213 @@ echo " - $INSTALL_DIR/xhttp.json"
 echo -e "\n分享链接（保存在 $INSTALL_DIR/v2ray.txt）："
 cat "$INSTALL_DIR/v2ray.txt"
 }
+n_meta() {
 
+cat << EOF > "$INSTALL_DIR/clash-meta.yaml"
+  - name: Reality
+    port: ${PORT}
+    server: ${PUBLIC_IP}
+    type: vless
+    network: tcp
+    udp: true
+    tls: true
+    servername: ${dest_server}
+    skip-cert-verify: true
+    reality-opts:
+      public-key: $(cat /usr/local/etc/xray/publickey)
+      short-id: ${short_id}
+    uuid: ${UUID}
+    flow: xtls-rprx-vision
+    client-fingerprint: chrome
+  - name: vmess-ws-tls
+    type: vmess
+    server: ${DOMAIN_LOWER}
+    port: 443
+    cipher: auto
+    uuid: ${UUID}
+    alterId: 0
+    tls: true
+    network: ws
+    ws-opts:
+      path: ${WS_PATH}
+      headers:
+        Host: ${DOMAIN_LOWER}
+    servername: ${DOMAIN_LOWER}
+  - name: vless-ws-tls
+    type: vless
+    server: ${DOMAIN_LOWER}
+    port: 443
+    uuid: ${UUID}
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    alterId: 0
+    cipher: auto
+    ws-opts:
+      headers:
+        Host: ${DOMAIN_LOWER}
+      path: ${WS_PATH1}
+    servername: ${DOMAIN_LOWER}
+  
+  
+
+EOF
+
+}
+c_meta() {
+cat << EOF > "$INSTALL_DIR/clash-meta.yaml"
+
+proxies:
+  - name: 出站1-XTLS+Reality
+    type: vless
+    server: "${PUBLIC_IP}"
+    port: 443
+    uuid: ${UUID}
+    encryption: none
+    flow: xtls-rprx-vision
+    network: tcp
+    tls: true
+    alpn:
+      - h2
+    servername: "${RDOMAIN_LOWE}"
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: $(cat /usr/local/etc/xray/publickey)
+      short-id: ${short_id}
+  - name: 出站2-xhttp+Reality
+    type: vless
+    server: "${PUBLIC_IP}"
+    port: 443
+    uuid: ${UUID2}
+    encryption: none
+    flow: ""
+    network: xhttp
+    tls: true
+    alpn:
+      - h2
+    servername: "${RDOMAIN_LOWE}"
+    client-fingerprint: chrome
+    reality-opts:
+      public-key:  $(cat /usr/local/etc/xray/publickey)
+      short-id: ${short_id}
+    xhttp-opts:
+      path: ${WS_PATH2}
+      mode: auto
+      reuse-settings:
+        max-concurrency: 16-32
+        c-max-reuse-times: "0"
+        h-max-reusable-secs: 1800-3000
+  - name: 出站3-cdn上行+xhttp下行
+    type: vless
+    server: ${DOMAIN_LOWER}
+    port: 443
+    uuid: ${UUID2}
+    encryption: none
+    flow: ""
+    network: xhttp
+    tls: true
+    alpn:
+      - h2
+    servername: ${DOMAIN_LOWER}
+    client-fingerprint: chrome
+    skip-cert-verify: true
+    xhttp-opts:
+      host: ${DOMAIN_LOWER}
+      path: ${WS_PATH2}
+      mode: auto
+      reuse-settings:
+        max-concurrency: 16-32
+        c-max-reuse-times: "0"
+        h-max-reusable-secs: 1800-3000
+      download-settings:
+        server: ${PUBLIC_IP}
+        port: 443
+        servername: "${RDOMAIN_LOWE}"
+        reality-opts:
+          public-key:  $(cat /usr/local/etc/xray/publickey)
+          short-id: ${short_id}
+        reuse-settings:
+          max-concurrency: 16-32
+          c-max-reuse-times: "0"
+          h-max-reusable-secs: 1800-3000
+  - name: 出站4-cdn上下行
+    type: vless
+    server: ${DOMAIN_LOWER}
+    port: 443
+    uuid: ${UUID2}
+    encryption: none
+    flow: ""
+    network: xhttp
+    tls: true
+    alpn:
+      - h2
+    servername: ${DOMAIN_LOWER}
+    client-fingerprint: chrome
+    skip-cert-verify: true
+    xhttp-opts:
+      host: ${DOMAIN_LOWER}
+      path: ${WS_PATH2}
+      mode: auto
+      reuse-settings:
+        max-concurrency: 16-32
+        c-max-reuse-times: "0"
+        h-max-reusable-secs: 1800-3000
+  - name: 出站5-上xhttp+Reality下xhttp+TLS+CDN
+    type: vless
+    server: YOUR_VPS_IP
+    port: 443
+    uuid: ${UUID2}
+    encryption: none
+    flow: ""
+    network: xhttp
+    tls: true
+    alpn:
+      - h2
+    servername: "${RDOMAIN_LOWE}"
+    client-fingerprint: chrome
+    skip-cert-verify: true
+    reality-opts:
+      public-key:  $(cat /usr/local/etc/xray/publickey)
+      short-id: ${short_id}
+    xhttp-opts:
+      host: ${DOMAIN_LOWER}
+      path: ${WS_PATH2}
+      mode: auto
+      reuse-settings:
+        max-concurrency: 16-32
+        c-max-reuse-times: "0"
+        h-max-reusable-secs: 1800-3000
+      download-settings:
+        path: ${WS_PATH2}
+        host: ""
+        server: ${DOMAIN_LOWER}
+        port: 443
+        tls: true
+        alpn:
+          - h2
+        servername: ${DOMAIN_LOWER}
+        client-fingerprint: chrome
+        skip-cert-verify: true
+        reality-opts:
+          public-key: ""
+        reuse-settings:
+          max-concurrency: 16-32
+          c-max-reuse-times: "0"
+          h-max-reusable-secs: 1800-3000
+
+EOF
+
+}
+clash_conf(){
+
+if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
+    
+    n_meta
+elif [ "$WEB_CHOICE" = "2" ]; then
+    
+    c_meta
+fi
+}
 # ================= 主流程 =================
 main(){
     xray_install
@@ -724,6 +930,7 @@ main(){
     xray_conf
     start_xray
     out_conf
+    clash_conf
     print_info "完成"
 }
 
