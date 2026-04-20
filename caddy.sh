@@ -236,3 +236,4 @@ DOMAIN_LOWER=$(grep '^cdn' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
 
 ssl
 caddy_install
+rm -f /root/catmi/install_info.txt
