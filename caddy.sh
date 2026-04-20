@@ -227,12 +227,13 @@ else
     exit 1
 fi
 }
-
-WS_PATH=$(grep '^vmess WS 路径' /root/catmi/install_info.txt | sed 's/.*[:：]//')
-WS_PATH1=$(grep '^vless WS 路径' /root/catmi/install_info.txt | sed 's/.*[:：]//')
-WS_PATH2=$(grep '^xhttp 路径' /root/catmi/install_info.txt | sed 's/.*[:：]//')
-RDOMAIN_LOWE=$(grep '^未cdn' /root/catmi/install_info.txt | sed 's/.*[:：]//')
-DOMAIN_LOWER=$(grep '^cdn' /root/catmi/install_info.txt | sed 's/.*[:：]//')
+mox=$(grep '^mox' /root/catmi/install_info.txt | sed 's/.*[:：]//')
+WINSTALL_DIR=/root/catmi/$mox
+WS_PATH=$(grep '^vmess WS 路径' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
+WS_PATH1=$(grep '^vless WS 路径' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
+WS_PATH2=$(grep '^xhttp 路径' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
+RDOMAIN_LOWE=$(grep '^未cdn' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
+DOMAIN_LOWER=$(grep '^cdn' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
 {
 
     echo "DOMAIN_LOWER：${DOMAIN_LOWER}"
