@@ -9,11 +9,7 @@ echo "1) 有80和443端口"
 echo "2) 无80 443端口"
 read -p "请输入选项 (1 或 2): " choice
 
-# 提示用户输入域名和电子邮件地址
-read -p "请输入域名: " DOMAIN
 
-# 将用户输入的域名转换为小写
-DOMAIN_LOWER=$(echo "$DOMAIN" | tr '[:upper:]' '[:lower:]')
 
 read -p "请输入电子邮件地址: " EMAIL
 
@@ -228,11 +224,7 @@ fi
 }
 mox=$(grep '^mox' /root/catmi/install_info.txt | sed 's/.*[:：]//')
 WINSTALL_DIR=/root/catmi/$mox
-WS_PATH=$(grep '^vmess WS 路径' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
-WS_PATH1=$(grep '^vless WS 路径' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
-WS_PATH2=$(grep '^xhttp 路径' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
-RDOMAIN_LOWE=$(grep '^未cdn' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
-DOMAIN_LOWER=$(grep '^cdn' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
+source "$WINSTALL_DIR/install_info.env"
 
 ssl
 caddy_install
