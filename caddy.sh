@@ -169,6 +169,12 @@ chmod -R 755 /var/www/html
 mkdir -p /run/xray
 chown -R caddy:caddy /run/xray
 chmod 755 /run/xray
+mkdir -p /etc/caddy/certs
+mv $CERT_PATH /etc/caddy/certs/
+mv $KEY_PATH /etc/caddy/certs/
+chown -R caddy:caddy /etc/caddy/certs
+chmod 644 /etc/caddy/certs/*
+tls /etc/caddy/certs/server.crt /etc/caddy/certs/server.key
 
 
 
