@@ -105,8 +105,8 @@ fi
 }
 ssl_sd(){
 CERT_DIR="/root/catmi"
-CERT_PATH="${CERT_DIR}/server.crt"
-KEY_PATH="${CERT_DIR}/server.key"
+CERT_PATH="${CERT_DIR}/${DOMAIN_LOWER}.crt"
+KEY_PATH="${CERT_DIR}/${DOMAIN_LOWER}.key"
 ufw disable
 # 创建目录
 mkdir -p "$CERT_DIR"
@@ -174,7 +174,6 @@ mv $CERT_PATH /etc/caddy/certs/
 mv $KEY_PATH /etc/caddy/certs/
 chown -R caddy:caddy /etc/caddy/certs
 chmod 644 /etc/caddy/certs/*
-tls /etc/caddy/certs/server.crt /etc/caddy/certs/server.key
 
 
 
@@ -183,7 +182,7 @@ ${DOMAIN_LOWER} ${RDOMAIN_LOWE} {
        bind unix//run/xray/tls_gate.sock
 
 
-        tls ${CERT_PATH} ${KEY_PATH}
+        tls /etc/caddy/certs/${DOMAIN_LOWER}.crt /etc/caddy/certs/${DOMAIN_LOWER}.key
 
         log {
                 output file /var/log/caddy/access.log
