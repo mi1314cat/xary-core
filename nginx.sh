@@ -257,7 +257,7 @@ EOF
 
 mox=$(grep '^mox' /root/catmi/install_info.txt | sed 's/.*[:：]//')
 NINSTALL_DIR="/root/catmi/$mox"
-source "$INSTALL_DIR/install_info.env"
+source "$NINSTALL_DIR/install_info.env"
 ipsl
 
 echo "请选择要申请证书的方式:"
