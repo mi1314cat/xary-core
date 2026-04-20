@@ -162,7 +162,7 @@ short_id=$(dd if=/dev/urandom bs=4 count=2 2>/dev/null | xxd -p -c 8)
 
 
 # 生成端口与路径
-PORT=$(generate_port "Reality (外部 TCP)")
+
 WS_PATH1=$(generate_ws_path)
 WS_PATH=$(generate_ws_path)
 WS_PATH2=$(generate_ws_path)
@@ -217,7 +217,7 @@ print_info "选定公网 IP: $PUBLIC_IP"
     echo "端口：${NPORT}"
     echo "reality端口：${PORT}"
     echo "UUID：${UUID}"
-    echo "UUID：${UUID2}"
+    echo "UUID2：${UUID2}"
     echo "vless WS 路径：${WS_PATH1}"
     echo "vmess WS 路径：${WS_PATH}"
     echo "xhttp 路径：${WS_PATH2}"
@@ -237,6 +237,7 @@ if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
     read -p "请输入监听端口 (默认 443): " NPORT
     NPORT=${NPORT:-443}
     dest_server
+    PORT=$(generate_port "Reality (外部 TCP)")
     nx_inbounds
 elif [ "$WEB_CHOICE" = "2" ]; then
     
@@ -333,28 +334,19 @@ EOF
     print_info "已设置 DOMAIN_LOWER=${DOMAIN_LOWER}"
 fi
 }
-# ================= Xray 配置 =================
-xray_conf() {
-# 生成 xray config.json（含多个 inbound）
-cat <<EOF > "$INSTALL_DIR/conf/log.json"
 
+
+nx_inbounds() {
+cat <<EOF > "$INSTALL_DIR/conf/01_n.json"
 {
+
   "log": {
-    "access": "$INSTALL_DIR/log/access.log",
-    "error": "$INSTALL_DIR/log/error.log",
+    "access": "$INSTALL_DIR/access.log",
+    "error": "$INSTALL_DIR/error.log",
     "disabled": false,
     "loglevel": "info",
     "timestamp": true
-  }
-
-}
-
-EOF
-
-cat <<EOF > "$INSTALL_DIR/conf/dns.json"
-
-{
-
+  },
   "dns": {
     "servers": [
       "https+local://1.1.1.1/dns-query",
@@ -362,15 +354,8 @@ cat <<EOF > "$INSTALL_DIR/conf/dns.json"
       "localhost"
 
     ]
-  }
-
-}
-
-EOF
-
-cat <<EOF > "$INSTALL_DIR/conf/routing.json"
-
-{
+  },
+  
   "routing": {
     "domainStrategy": "IPIfNonMatch",
     "rules": [
@@ -384,36 +369,7 @@ cat <<EOF > "$INSTALL_DIR/conf/routing.json"
         "outboundTag": "block" 
       }
     ]
-  }
-
-}
-
-EOF 
-
-cat <<EOF > "$INSTALL_DIR/conf/outbounds.json"
-
-{
-"outbounds": [
-    
-    {
-      "tag": "direct",
-      "protocol": "freedom"
-    },
-    
-    {
-      "tag": "block",
-      "protocol": "blackhole"
-    }
-  ]
-}
-
-EOF
-
-}
-
-nx_inbounds() {
-cat <<EOF > "$INSTALL_DIR/conf/nx_inbounds.json"
-{
+  },
   "inbounds": [
     {
       "listen": "127.0.0.1",
@@ -522,6 +478,18 @@ cat <<EOF > "$INSTALL_DIR/conf/nx_inbounds.json"
         }
       }
     }
+  ],
+  "outbounds": [
+    
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    }
   ]
 }
 
@@ -530,8 +498,40 @@ EOF
 
 cx_inbounds() {
 
-cat <<EOF > "$INSTALL_DIR/conf/cx_inbounds.json"
+cat <<EOF > "$INSTALL_DIR/conf/02_c.json"
+ 
  {
+
+  "log": {
+    "access": "$INSTALL_DIR/access.log",
+    "error": "$INSTALL_DIR/error.log",
+    "disabled": false,
+    "loglevel": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      "https+local://1.1.1.1/dns-query",
+      "https+local://8.8.8.8/dns-query",
+      "localhost"
+
+    ]
+  },
+  
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      
+     
+      
+      {
+        "domain": [
+          "geosite:category-ads-all" 
+        ],
+        "outboundTag": "block" 
+      }
+    ]
+  },
    "inbounds": [
       {
          "listen": "0.0.0.0",
@@ -612,7 +612,19 @@ cat <<EOF > "$INSTALL_DIR/conf/cx_inbounds.json"
          },
          "tag": "XHTTP_INBOUND"
       }
-   ]
+   ],
+  "outbounds": [
+    
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    }
+  ]
  }
 
 EOF
