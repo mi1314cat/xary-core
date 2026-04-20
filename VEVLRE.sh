@@ -76,6 +76,29 @@ generate_ws_path() {
 INSTALL_DIR="/root/catmi/xray"
 mkdir -p "$INSTALL_DIR"/{conf,log}
 echo "mox：xray" >> /root/catmi/install_info.txt
+ENV_FILE="$INSTALL_DIR/install_info.env"
+
+update_env() {
+    local key="$1"
+    local value="$2"
+
+    # key 必须是合法的 env 变量名
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || {
+        echo "Invalid key: $key"
+        return 1
+    }
+
+    # 转义 value 中的双引号
+    value="${value//\"/\\\"}"
+
+    [ -f "$ENV_FILE" ] || touch "$ENV_FILE"
+
+    if grep -q "^${key}=" "$ENV_FILE"; then
+        sed -i "s|^${key}=.*|${key}=\"${value}\"|" "$ENV_FILE"
+    else
+        echo "${key}=\"${value}\"" >> "$ENV_FILE"
+    fi
+}
 
 
 # ================= 安装 Xray =================
@@ -211,21 +234,18 @@ fi
 
 print_info "选定公网 IP: $PUBLIC_IP"
 
-cat > "$INSTALL_DIR/install_info.env" <<EOF
-PUBLIC_IP="${PUBLIC_IP}"
-IP_CHOICE="${IP_CHOICE}"
-PORT="${PORT}"
-UUID="${UUID}"
-UUID2="${UUID2}"
-WS_PATH1="${WS_PATH1}"
-WS_PATH="${WS_PATH}"
-WS_PATH2="${WS_PATH2}"
-PRIVATE_KEY="$(tr -d '\n' < /usr/local/etc/xray/privatekey)"
-PUBLIC_KEY="$(tr -d '\n' < /usr/local/etc/xray/publickey)"
-PASSWORD="$(tr -d '\n' < /usr/local/etc/xray/password)"
-SHORT_ID="${short_id}"
-EOF
-
+update_env PUBLIC_IP "$PUBLIC_IP"
+update_env IP_CHOICE "$IP_CHOICE"
+update_env UUID "$UUID"
+update_env UUID2 "$UUID2"
+update_env WS_PATH1 "$WS_PATH1"
+update_env WS_PATH "$WS_PATH"
+update_env WS_PATH2 "$WS_PATH2"
+update_env PRIVATE_KEY "$(tr -d '\n' < /usr/local/etc/xray/privatekey)"
+update_env PUBLIC_KEY "$(tr -d '\n' < /usr/local/etc/xray/publickey)"
+update_env PASSWORD "$(tr -d '\n' < /usr/local/etc/xray/password)"
+update_env SHORT_ID "$short_id"
+}
 # ================= Web 选择 =================
 webcn() {
 echo "请选择 Web 服务安装方式："
@@ -237,27 +257,21 @@ if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
     
     read -p "请输入监听端口 (默认 443): " NPORT
     NPORT=${NPORT:-443}
-    if grep -q "^NPORT=" "$INSTALL_DIR/install_info.env"; then
-    sed -i "s|^NPORT=.*|NPORT=\"${NPORT}\"|" "$INSTALL_DIR/install_info.env"
-    else
-    echo "NPORT=\"${NPORT}\"" >> "$INSTALL_DIR/install_info.env"
-    fi
+    update_env NPORT "NPORT"
     
     dest_server
     PORT=$(generate_port "Reality (外部 TCP)")
+    update_env PORT "PORT"
     read -p "请输入申请证书的域名: " DOMAIN_LOWER   
-    if grep -q "^DOMAIN_LOWER=" "$INSTALL_DIR/install_info.env"; then
-    sed -i "s|^DOMAIN_LOWER=.*|DOMAIN_LOWER=\"${DOMAIN_LOWER}\"|" "$INSTALL_DIR/install_info.env"
-   else
-    echo "DOMAIN_LOWER=\"${DOMAIN_LOWER}\"" >> "$INSTALL_DIR/install_info.env"
-    fi
+    update_env DOMAIN_LOWER "DOMAIN_LOWER"
     nx_inbounds
 elif [ "$WEB_CHOICE" = "2" ]; then
     
     read -p "请输入未cdn域名 " RDOMAIN_LOWE
     read -p "请输入申请证书的域名: " DOMAIN_LOWER    
-    echo "cdn：${DOMAIN_LOWER}" >> "$INSTALL_DIR/install_info.txt"
-    echo "未cdn：${RDOMAIN_LOWE}" >> "$INSTALL_DIR/install_info.txt"
+    update_env DOMAIN_LOWER "DOMAIN_LOWER"
+    update_env RDOMAIN_LOWE "RDOMAIN_LOWE"
+
     cx_inbounds
 fi
 }
