@@ -233,10 +233,6 @@ WS_PATH1=$(grep '^vless WS 路径' $WINSTALL_DIR/install_info.txt | sed 's/.*[:�
 WS_PATH2=$(grep '^xhttp 路径' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
 RDOMAIN_LOWE=$(grep '^未cdn' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
 DOMAIN_LOWER=$(grep '^cdn' $WINSTALL_DIR/install_info.txt | sed 's/.*[:：]//')
-{
 
-    echo "DOMAIN_LOWER：${DOMAIN_LOWER}"
-    
-} > "/root/catmi/DOMAIN_LOWER.txt"
 ssl
 caddy_install
