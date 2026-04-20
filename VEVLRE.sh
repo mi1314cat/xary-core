@@ -104,7 +104,7 @@ Description=xrayls Service
 After=network.target
 
 [Service]
-ExecStart=$INSTALL_DIR/xrayls -c $INSTALL_DIR/conf
+ExecStart=$INSTALL_DIR/xrayls -c $INSTALL_DIR/conf/01.json
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65536
@@ -339,7 +339,7 @@ fi
 
 
 nx_inbounds() {
-cat <<EOF > "$INSTALL_DIR/conf/01_n.json"
+cat <<EOF > "$INSTALL_DIR/conf/01.json"
 {
 
   "log": {
@@ -500,7 +500,7 @@ EOF
 
 cx_inbounds() {
 
-cat <<EOF > "$INSTALL_DIR/conf/02_c.json"
+cat <<EOF > "$INSTALL_DIR/conf/01.json"
  
  {
 
