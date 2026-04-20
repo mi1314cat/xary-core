@@ -238,6 +238,8 @@ if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
     NPORT=${NPORT:-443}
     dest_server
     PORT=$(generate_port "Reality (外部 TCP)")
+    read -p "请输入申请证书的域名: " DOMAIN_LOWER   
+    echo "cdn：${DOMAIN_LOWER}" >> "$INSTALL_DIR/install_info.txt"
     nx_inbounds
 elif [ "$WEB_CHOICE" = "2" ]; then
     
