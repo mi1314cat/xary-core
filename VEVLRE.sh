@@ -211,19 +211,20 @@ fi
 
 print_info "选定公网 IP: $PUBLIC_IP"
 
-{
-    echo "服务器地址：${PUBLIC_IP}"
-    echo "IP_CHOICE：${IP_CHOICE}"
-    echo "端口：${NPORT}"
-    echo "reality端口：${PORT}"
-    echo "UUID：${UUID}"
-    echo "UUID2：${UUID2}"
-    echo "vless WS 路径：${WS_PATH1}"
-    echo "vmess WS 路径：${WS_PATH}"
-    echo "xhttp 路径：${WS_PATH2}"
-    echo "short_id：${short_id}"
-} > "$INSTALL_DIR/install_info.txt"
-}
+cat > "$INSTALL_DIR/install_info.env" <<EOF
+PUBLIC_IP="${PUBLIC_IP}"
+IP_CHOICE="${IP_CHOICE}"
+PORT="${PORT}"
+UUID="${UUID}"
+UUID2="${UUID2}"
+WS_PATH1="${WS_PATH1}"
+WS_PATH="${WS_PATH}"
+WS_PATH2="${WS_PATH2}"
+PRIVATE_KEY="$(tr -d '\n' < /usr/local/etc/xray/privatekey)"
+PUBLIC_KEY="$(tr -d '\n' < /usr/local/etc/xray/publickey)"
+PASSWORD="$(tr -d '\n' < /usr/local/etc/xray/password)"
+SHORT_ID="${short_id}"
+EOF
 
 # ================= Web 选择 =================
 webcn() {
@@ -236,10 +237,20 @@ if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
     
     read -p "请输入监听端口 (默认 443): " NPORT
     NPORT=${NPORT:-443}
+    if grep -q "^NPORT=" "$INSTALL_DIR/install_info.env"; then
+    sed -i "s|^NPORT=.*|NPORT=\"${NPORT}\"|" "$INSTALL_DIR/install_info.env"
+    else
+    echo "NPORT=\"${NPORT}\"" >> "$INSTALL_DIR/install_info.env"
+    fi
+    
     dest_server
     PORT=$(generate_port "Reality (外部 TCP)")
     read -p "请输入申请证书的域名: " DOMAIN_LOWER   
-    echo "cdn：${DOMAIN_LOWER}" >> "$INSTALL_DIR/install_info.txt"
+    if grep -q "^DOMAIN_LOWER=" "$INSTALL_DIR/install_info.env"; then
+    sed -i "s|^DOMAIN_LOWER=.*|DOMAIN_LOWER=\"${DOMAIN_LOWER}\"|" "$INSTALL_DIR/install_info.env"
+   else
+    echo "DOMAIN_LOWER=\"${DOMAIN_LOWER}\"" >> "$INSTALL_DIR/install_info.env"
+    fi
     nx_inbounds
 elif [ "$WEB_CHOICE" = "2" ]; then
     
