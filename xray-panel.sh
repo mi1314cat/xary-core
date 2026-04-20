@@ -40,7 +40,7 @@ xrayls 服务状态: ${xrayls_server_status_text}
 
     case "${choice}" in
         0) clear; exit 0 ;;
-        1) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/VEVLRE6.sh) ;;
+        1) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/VEVLRE.sh) ;;
         2) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/uninstall_xray.sh) ;;
         3) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/upxray.sh) ;;
         4) systemctl restart xrayls.service ;;
