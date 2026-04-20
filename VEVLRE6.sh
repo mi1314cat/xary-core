@@ -422,8 +422,8 @@ if [[ "$INSTALL_NGINX" == "y" || "$INSTALL_NGINX" == "Y" ]]; then
     print_info "开始安装并配置 Nginx..."
 
     # ===== 先执行 nginx =====
-    if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh >/dev/null 2>&1; then
-        bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh) \
+    if curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx6.sh >/dev/null 2>&1; then
+        bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx6.sh) \
         || print_info "nginx.sh 执行结束（非致命）"
     else
         print_info "无法下载 nginx.sh，跳过 nginx 配置"
