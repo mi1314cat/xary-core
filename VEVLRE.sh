@@ -337,6 +337,7 @@ fi
 xray_conf() {
 # 生成 xray config.json（含多个 inbound）
 cat <<EOF > "$INSTALL_DIR/conf/log.json"
+
 {
   "log": {
     "access": "$INSTALL_DIR/log/access.log",
@@ -345,10 +346,13 @@ cat <<EOF > "$INSTALL_DIR/conf/log.json"
     "loglevel": "info",
     "timestamp": true
   }
-   }
+
+}
+
 EOF
 
 cat <<EOF > "$INSTALL_DIR/conf/dns.json"
+
 {
 
   "dns": {
@@ -359,9 +363,13 @@ cat <<EOF > "$INSTALL_DIR/conf/dns.json"
 
     ]
   }
-  }
+
+}
+
 EOF
+
 cat <<EOF > "$INSTALL_DIR/conf/routing.json"
+
 {
   "routing": {
     "domainStrategy": "IPIfNonMatch",
@@ -377,9 +385,13 @@ cat <<EOF > "$INSTALL_DIR/conf/routing.json"
       }
     ]
   }
-  }
+
+}
+
 EOF 
+
 cat <<EOF > "$INSTALL_DIR/conf/outbounds.json"
+
 {
 "outbounds": [
     
@@ -394,8 +406,11 @@ cat <<EOF > "$INSTALL_DIR/conf/outbounds.json"
     }
   ]
 }
+
 EOF
+
 }
+
 nx_inbounds() {
 cat <<EOF > "$INSTALL_DIR/conf/nx_inbounds.json"
 {
