@@ -223,8 +223,26 @@ else
 fi
 }
 mox=$(grep '^mox' /root/catmi/install_info.txt | sed 's/.*[:：]//')
-WINSTALL_DIR=/root/catmi/$mox
-source "$WINSTALL_DIR/install_info.env"
+WINSTALL_DIR="/root/catmi/$mox"
+ENV_FILE="$WINSTALL_DIR/install_info.env"
+load_env() {
+    if [ -f "$ENV_FILE" ]; then
+        # 检查 env 文件格式是否正确
+        if grep -qEv '^[A-Za-z_][A-Za-z0-9_]*=".*"$' "$ENV_FILE"; then
+            echo "⚠ env 文件格式异常：$ENV_FILE"
+            return 1
+        fi
+
+        # 安全加载
+        set -a
+        source "$ENV_FILE"
+        set +a
+        echo "已加载 env：$ENV_FILE"
+    else
+        echo "env 文件不存在：$ENV_FILE"
+    fi
+}
+
 
 ssl
 caddy_install
