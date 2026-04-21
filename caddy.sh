@@ -286,8 +286,9 @@ load_env() {
 }
 
 load_env
-WINSTALL_DIR="/root/catmi/$mode/install_info.env"
-load_env $WINSTALL_DIR
+WINSTALL_DIR="/root/catmi/$mode"
+WINSTALL_ENV="$WINSTALL_DIR/install_info.env"
+
+load_env $WINSTALL_ENV
 ssl
 caddy_install
-rm -f /root/catmi/install_info.txt
