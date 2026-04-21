@@ -22,6 +22,17 @@ update_env() {
         echo "${key}=\"${value}\"" >> "$ENV_FILE"
     fi
 }
+# 随机生成 WS 路径
+generate_ws_path() {
+    echo "/$(tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 10)"
+}
+
+
+# 随机生成 UUID
+generate_uuid() {
+    cat /proc/sys/kernel/random/uuid
+}
+
 usid() {
 # 生成短 id
 short_id=$(dd if=/dev/urandom bs=4 count=2 2>/dev/null | xxd -p -c 8)
@@ -61,24 +72,24 @@ IP_CHOICE=${IP_CHOICE:-1}
 # 选择公网 IP 地址
 if [ "$IP_CHOICE" -eq 2 ] && [ -n "$PUBLIC_IP_V6" ]; then
     PUBLIC_IP="$PUBLIC_IP_V6"
-    VALUE="[::]:"
+else
+    PUBLIC_IP="${PUBLIC_IP_V4:-$PUBLIC_IP_V6}"
+fi
+
+# IPv6 需要中括号，IPv4 不需要
+if [[ "$PUBLIC_IP" =~ : ]]; then
     link_ip="[$PUBLIC_IP]"
 else
-    # 默认使用 IPv4（如果不存在则回落到 IPv6）
-    if [ -n "$PUBLIC_IP_V4" ]; then
-        PUBLIC_IP="$PUBLIC_IP_V4"
-        
-        link_ip="$PUBLIC_IP"
-    else
-        PUBLIC_IP="$PUBLIC_IP_V6"
-        
-        link_ip="[$PUBLIC_IP]"
-    fi
+    link_ip="$PUBLIC_IP"
 fi
+
+update_env link_ip "$link_ip"
+
+
 
 print_info "选定公网 IP: $PUBLIC_IP"
 
-update_env link_ip="[$link_ip]"
+
 update_env PUBLIC_IP "$PUBLIC_IP"
 update_env IP_CHOICE "$IP_CHOICE"
 update_env UUID "$UUID"
