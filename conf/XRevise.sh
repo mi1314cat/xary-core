@@ -162,6 +162,8 @@ generate_port() {
         return 0
     done
 }
+
+generate_all_env() {
 # 检查 openssl 是否存在
 if ! command -v openssl >/dev/null 2>&1; then
     echo "[Info] openssl 未安装，正在自动安装..."
@@ -177,8 +179,10 @@ if ! command -v openssl >/dev/null 2>&1; then
         exit 1
     fi
 fi
+    PORT=$(generate_port "Reality (外部 TCP)")
+    update_env PORT "$PORT"
+    getkey
+    usid
+}
 
-PORT=$(generate_port "Reality (外部 TCP)")
-update_env PORT "$PORT"
-getkey
-usid
+generate_all_env
