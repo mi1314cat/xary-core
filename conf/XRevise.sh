@@ -24,8 +24,9 @@ update_env() {
 }
 # 随机生成 WS 路径（更安全、更兼容）
 generate_ws_path() {
-    echo "/$(openssl rand -hex 4)"
+    echo "/$(tr -dc 'a-z0-9' </dev/urandom | head -c 10)"
 }
+
 
 # 随机生成 UUID
 generate_uuid() {
