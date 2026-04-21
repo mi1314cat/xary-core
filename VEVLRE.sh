@@ -106,7 +106,7 @@ update_env() {
     ) 200>"$env_file.lock"
 }
 
-
+update_env $CATMIENV_FILE mode xray
 # ================= 安装 Xray =================
 xray_install() {
 # 安装 xray（保留你原来的安装方式）
