@@ -27,6 +27,7 @@ list_configs() {
 
 # 新增配置
 add_config() {
+    read -p "请输入本地监听端口: " lport
     read -p "请输入目标 IP: " ip
     read -p "请输入目标端口: " tport
 
@@ -49,21 +50,24 @@ add_config() {
     next=$((next + 1))
 
     file="$CONF_DIR/$PROTO-$(printf "%02d" $next).json"
-    lport=$((20000 + next))
 
     cat <<EOF > "$file"
 {
-  "listen": "127.0.0.1",
-  "port": $lport,
-  "protocol": "$PROTO",
-  "settings": {
-    "address": "$ip",
-    "port": $tport,
-    "network": "$net",
-    "followRedirect": false,
-    "userLevel": 0
-  },
-  "tag": "$PROTO$next"
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": $lport,
+      "protocol": "$PROTO",
+      "settings": {
+        "address": "$ip",
+        "port": $tport,
+        "network": "$net",
+        "followRedirect": false,
+        "userLevel": 0
+      },
+      "tag": "$PROTO$next"
+    }
+  ]
 }
 EOF
 
@@ -72,6 +76,7 @@ EOF
     echo "本地端口: $lport"
     echo "转发到: $ip:$tport ($net)"
 }
+
 
 # 删除配置
 delete_config() {
