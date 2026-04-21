@@ -1,3 +1,11 @@
+# 打印带颜色的消息
+print_info() {
+    echo -e "${GREEN}[Info]${PLAIN} $1"
+}
+
+print_error() {
+    echo -e "${RED}[Error]${PLAIN} $1"
+}
 
 
 ssl_dns() {
