@@ -44,7 +44,7 @@ xrayls 服务状态: ${xrayls_server_status_text}
         2) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/uninstall_xray.sh) ;;
         3) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/upxray.sh) ;;
         4) systemctl restart xrayls.service ;;
-        5) [[ -f /root/catmi/xray.txt ]] && cat /root/catmi/xray.txt || echo "配置文件不存在" ;;
+        5) show_xray_configs ;;
         6) XRevise ;;  # 示例配置修改
         7) systemctl status xrayls.service -l ;;
         *) echo -e "${RED}无效的选项 ${choice}${PLAIN}" ;;
@@ -68,6 +68,23 @@ load_env() {
     else
         echo "env 文件不存在：$ENV_FILE"
     fi
+}
+show_xray_configs() {
+    local files=(
+        "/root/catmi/xray/xhttp.json"
+        "/root/catmi/xray/v2ray.txt"
+        "/root/catmi/xray/clash-meta.yaml"
+    )
+
+    for f in "${files[@]}"; do
+        if [[ -f "$f" ]]; then
+            echo "===== $f ====="
+            cat "$f"
+            echo
+        else
+            echo "文件不存在：$f"
+        fi
+    done
 }
 
 XRevise() {
