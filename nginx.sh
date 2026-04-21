@@ -1,3 +1,12 @@
+# 打印带颜色的消息
+print_info() {
+    echo -e "${GREEN}[Info]${PLAIN} $1"
+}
+
+print_error() {
+    echo -e "${RED}[Error]${PLAIN} $1"
+}
+
 ipsl() {
     # 确保 IP_CHOICE 已经从 env 加载
     if [ -z "$IP_CHOICE" ]; then
