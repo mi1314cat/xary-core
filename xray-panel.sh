@@ -52,8 +52,37 @@ xrayls 服务状态: ${xrayls_server_status_text}
 
     echo && read -p "按回车键返回主菜单..." && echo
 }
+load_env() {
+    if [ -f "$ENV_FILE" ]; then
+        # 检查 env 文件格式是否正确
+        if grep -qEv '^[A-Za-z_][A-Za-z0-9_]*=".*"$' "$ENV_FILE"; then
+            echo "⚠ env 文件格式异常：$ENV_FILE"
+            return 1
+        fi
+
+        # 安全加载
+        set -a
+        source "$ENV_FILE"
+        set +a
+        echo "已加载 env：$ENV_FILE"
+    else
+        echo "env 文件不存在：$ENV_FILE"
+    fi
+}
+load_env
 XRevise() {
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/XRevise.sh)
+load_env
+if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
+    
+    
+    bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/nconf.sh)
+elif [ "$WEB_CHOICE" = "2" ]; then
+    
+   
+
+    bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/cconf.sh)
+fi
 systemctl restart xrayls.service
 systemctl status xrayls.service 
 
