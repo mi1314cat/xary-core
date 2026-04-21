@@ -333,7 +333,7 @@ load_env() {
 
 
 load_env
-NINSTALL_DIR"/root/catmi/$mode"
+NINSTALL_DIR="/root/catmi/$mode"
 NINSTALL_ENV="$NINSTALL_DIR/install_info.env"
 load_env $NINSTALL_ENV
 ipsl
