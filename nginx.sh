@@ -275,6 +275,7 @@ load_env() {
         echo "env 文件不存在：$ENV_FILE"
     fi
 }
+load_env
 ipsl
 
 echo "请选择要申请证书的方式:"
