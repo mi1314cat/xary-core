@@ -1,26 +1,25 @@
 ipsl() {
+    # 确保 IP_CHOICE 已经从 env 加载
+    if [ -z "$IP_CHOICE" ]; then
+        echo "IP_CHOICE 未在 env 中找到，请确认前置安装脚本是否正确写入。"
+        exit 1
+    fi
 
-# 提取 IP_CHOICE（支持中英文冒号）
-IP_CHOICE=$(grep '^IP_CHOICE' $INSTALL_DIR/install_info.txt | sed 's/.*[:：]//' | tr -d '[:space:]')
+    if ! [[ "$IP_CHOICE" =~ ^[0-9]+$ ]]; then
+        echo "无效的 IP_CHOICE 值：$IP_CHOICE"
+        exit 1
+    fi
 
-# 检查是否是数字
-if ! [[ "$IP_CHOICE" =~ ^[0-9]+$ ]]; then
-    echo "无效的 IP_CHOICE 值：$IP_CHOICE"
-    exit 1
-fi
-
-# 选择公网 IP 地址
-if [ "$IP_CHOICE" -eq 1 ]; then
-    VALUE=""
-elif [ "$IP_CHOICE" -eq 2 ]; then
-    VALUE="[::]:"
-else
-    echo "无效选择，退出脚本"
-    exit 1
-fi
-
-
+    if [ "$IP_CHOICE" -eq 1 ]; then
+        NVALUE=""
+    elif [ "$IP_CHOICE" -eq 2 ]; then
+        NVALUE="[::]:"
+    else
+        echo "无效选择，退出脚本"
+        exit 1
+    fi
 }
+
 ssl_dns() {
     set -e
 
@@ -195,7 +194,7 @@ http {
     gzip on;
 
     server {
-        listen $VALUE${NPORT} ssl http2;
+        listen $NVALUE${NPORT} ssl http2;
         server_name ${DOMAIN_LOWER};
 
         ssl_certificate       "${CERT_PATH}";
