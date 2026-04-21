@@ -221,11 +221,10 @@ else
     exit 1
 fi
 }
-mox=$(grep '^mox' /root/catmi/install_info.txt | sed 's/.*[:：]//')
-WINSTALL_DIR="/root/catmi/$mox"
-ENV_FILE="$WINSTALL_DIR/install_info.env"
+DINSTALL_CATMI="/root/catmi"
+CATMIENV_FILE="$DINSTALL_CATMI/catmi.env"
 load_env() {
-    local env_file="${1:-$ENV_FILE}"
+    local env_file="${1:-$CATMIENV_FILE}"
 
     # 1. 检查文件是否存在
     if [ ! -f "$env_file" ]; then
@@ -287,7 +286,8 @@ load_env() {
 }
 
 load_env
-
+WINSTALL_DIR="/root/catmi/$mode/install_info.env"
+load_env $WINSTALL_DIR
 ssl
 caddy_install
 rm -f /root/catmi/install_info.txt
