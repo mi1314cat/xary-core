@@ -133,7 +133,7 @@ Description=xrayls Service
 After=network.target
 
 [Service]
-ExecStart=$INSTALL_DIR/xrayls -c $INSTALL_DIR/conf/01.json
+ExecStart=$INSTALL_DIR/xrayls -confdir $INSTALL_DIR/conf
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65536
