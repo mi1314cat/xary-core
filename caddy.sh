@@ -166,8 +166,8 @@ mkdir -p /run/xray
 chown -R caddy:caddy /run/xray
 chmod 755 /run/xray
 mkdir -p /etc/caddy/certs
-mv $CERT_PATH /etc/caddy/certs/
-mv $KEY_PATH /etc/caddy/certs/
+cp "$CERT_PATH" "/etc/caddy/certs/${DOMAIN_LOWER}.crt"
+cp "$KEY_PATH" "/etc/caddy/certs/${DOMAIN_LOWER}.key"
 chown -R caddy:caddy /etc/caddy/certs
 chmod 644 /etc/caddy/certs/*
 
@@ -178,8 +178,7 @@ ${DOMAIN_LOWER} ${RDOMAIN_LOWE} {
        bind unix//run/xray/tls_gate.sock
 
 
-        tls /etc/caddy/certs/${DOMAIN_LOWER}.crt /etc/caddy/certs/${DOMAIN_LOWER}.key
-
+       tls /etc/caddy/certs/${DOMAIN_LOWER}.crt /etc/caddy/certs/${DOMAIN_LOWER}.key
         log {
                 output file /var/log/caddy/access.log
         }
