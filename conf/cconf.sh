@@ -186,20 +186,8 @@ vless://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LO
 "
 echo "${share_link}" > "$INSTALL_DIR/v2ray.txt"
 
-# 展示服务状态与分享链接路径
-systemctl status xrayls --no-pager || true
 
-echo -e "\n${GREEN}安装完成，关键输出文件：${PLAIN}"
-echo " - $INSTALL_DIR/install_info.txt"
-echo " - $INSTALL_DIR/config.json"
-echo " - $INSTALL_DIR/v2ray.txt"
-echo " - /usr/local/etc/xray/privatekey (权限600)"
-echo " - /usr/local/etc/xray/publickey (权限600)"
-echo " - $INSTALL_DIR/clash-meta.yaml"
-echo " - $INSTALL_DIR/xhttp.json"
 
-echo -e "\n分享链接（保存在 $INSTALL_DIR/v2ray.txt）："
-cat "$INSTALL_DIR/v2ray.txt"
 
 }
 c_meta() {
