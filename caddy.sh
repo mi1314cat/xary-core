@@ -184,7 +184,7 @@ ${DOMAIN_LOWER} ${RDOMAIN_LOWE} {
                 output file /var/log/caddy/access.log
         }
 
-        handle /${WS_PATH2} {
+        handle ${WS_PATH2} {
                 reverse_proxy unix//run/xray/xhttp_in.sock {
                         transport http {
                                 versions 2
