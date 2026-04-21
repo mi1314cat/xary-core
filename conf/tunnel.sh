@@ -14,16 +14,18 @@ list_configs() {
         [[ -f "$f" ]] || continue
 
         num=$(basename "$f" .json | cut -d'-' -f2)
-        ip=$(jq -r '.settings.address' "$f")
-        port=$(jq -r '.settings.port' "$f")
-        net=$(jq -r '.settings.network' "$f")
-        lport=$(jq -r '.port' "$f")
+
+        ip=$(jq -r '.inbounds[0].settings.address' "$f")
+        port=$(jq -r '.inbounds[0].settings.port' "$f")
+        net=$(jq -r '.inbounds[0].settings.network' "$f")
+        lport=$(jq -r '.inbounds[0].port' "$f")
 
         echo "$num) $ip:$port ($net) → 本地端口 $lport"
     done
 
     echo "-------------------------------------"
 }
+
 
 # 新增配置
 add_config() {
