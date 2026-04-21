@@ -12,8 +12,8 @@ cat <<EOF > "$INSTALL_DIR/conf/01.json"
 {
 
   "log": {
-    "access": "$INSTALL_DIR/access.log",
-    "error": "$INSTALL_DIR/error.log",
+    "access": "$INSTALL_DIR/log/access.log",
+    "error": "$INSTALL_DIR/log/error.log",
     "disabled": false,
     "loglevel": "info",
     "timestamp": true
