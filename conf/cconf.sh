@@ -365,6 +365,7 @@ load_env() {
         echo "env 文件不存在：$ENV_FILE"
     fi
 }
+load_env
 cx_inbounds
 out_conf
 c_meta
