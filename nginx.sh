@@ -329,7 +329,13 @@ load_env() {
     echo "成功：已安全加载环境配置文件 $env_file"
 }
 
+
+
+
 load_env
+NINSTALL_DIR"/root/catmi/$mode"
+NINSTALL_ENV="$NINSTALL_DIR/install_info.env"
+load_env $NINSTALL_ENV
 ipsl
 
 echo "请选择要申请证书的方式:"
@@ -349,12 +355,6 @@ else
     echo "无效选择，退出脚本"
     exit 1
 fi
-
-
-load_env
-NINSTALL_DIR"/root/catmi/$mode"
-NINSTALL_ENV="$NINSTALL_DIR/install_info.env"
-load_env $NINSTALL_ENV
 
 
 
