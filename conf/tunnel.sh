@@ -27,11 +27,24 @@ list_configs() {
     echo "-------------------------------------"
 }
 
-# 新增配置
 add_config() {
     read -p "请输入目标 IP: " ip
     read -p "请输入目标端口: " tport
-    read -p "请选择协议 (tcp/udp): " net
+
+    # 协议选择菜单
+    echo "请选择协议类型:"
+    echo "1) tcp"
+    echo "2) udp"
+    read -p "请输入选项: " choice
+
+    case "$choice" in
+        1) net="tcp" ;;
+        2) net="udp" ;;
+        *) 
+            echo "无效选项，默认使用 tcp"
+            net="tcp"
+            ;;
+    esac
 
     # 自动找下一个编号
     next=$(ls "$CONF_DIR"/$PROTO-*.json 2>/dev/null | wc -l)
@@ -61,6 +74,7 @@ EOF
     echo "本地端口: $lport"
     echo "转发到: $ip:$tport ($net)"
 }
+
 
 # 删除配置
 delete_config() {
