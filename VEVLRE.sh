@@ -41,15 +41,21 @@ print_error() {
     echo -e "${RED}[Error]${PLAIN} $1"
 }
 
-
+DINSTALL_CATMI="/root/catmi"
+CATMIENV_FILE="$DINSTALL_CATMI/catmi.env"
 INSTALL_DIR="/root/catmi/xray"
 mkdir -p "$INSTALL_DIR"/{conf,log}
-echo "mox：xray" >> /root/catmi/install_info.txt
-ENV_FILE="$INSTALL_DIR/install_info.env"
+xrayconf="$INSTALL_DIR/install_info.env"
+
 
 update_env() {
-    local key="$1"
-    local value="$2"
+    local env_file="$1"
+    local key="$2"
+    local value="$3"
+
+    # 参数检查
+    [[ -n "$env_file" ]] || { echo "错误：未指定 env 文件"; return 1; }
+    [[ -n "$key" ]]      || { echo "错误：未指定 key"; return 1; }
 
     # 校验 key
     [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || {
@@ -58,18 +64,18 @@ update_env() {
     }
 
     # 确保目录 & 文件
-    mkdir -p "$(dirname "$ENV_FILE")"
-    [ -f "$ENV_FILE" ] || touch "$ENV_FILE"
+    mkdir -p "$(dirname "$env_file")"
+    [ -f "$env_file" ] || touch "$env_file"
 
     # 获取权限 & 属主（兼容 Linux / BSD）
     local mode owner group
-    if mode=$(stat -c "%a" "$ENV_FILE" 2>/dev/null); then
-        owner=$(stat -c "%u" "$ENV_FILE")
-        group=$(stat -c "%g" "$ENV_FILE")
+    if mode=$(stat -c "%a" "$env_file" 2>/dev/null); then
+        owner=$(stat -c "%u" "$env_file")
+        group=$(stat -c "%g" "$env_file")
     else
-        mode=$(stat -f "%Lp" "$ENV_FILE")
-        owner=$(stat -f "%u" "$ENV_FILE")
-        group=$(stat -f "%g" "$ENV_FILE")
+        mode=$(stat -f "%Lp" "$env_file")
+        owner=$(stat -f "%u" "$env_file")
+        group=$(stat -f "%g" "$env_file")
     fi
 
     # 转义 value
@@ -82,22 +88,22 @@ update_env() {
         flock 200
 
         local tmp_file
-        tmp_file=$(mktemp "$(dirname "$ENV_FILE")/.env.tmp.XXXXXX")
+        tmp_file=$(mktemp "$(dirname "$env_file")/.env.tmp.XXXXXX")
 
-        # 先设置权限
+        # 设置权限
         chmod "$mode" "$tmp_file"
         chown "$owner":"$group" "$tmp_file" 2>/dev/null || true
 
-        # 精确删除旧 key（严格匹配 key=）
-        awk -v k="$key" 'index($0, k"=") != 1' "$ENV_FILE" > "$tmp_file"
+        # 精确删除旧 key
+        awk -v k="$key" 'index($0, k"=") != 1' "$env_file" > "$tmp_file"
 
         # 写入新值
         printf '%s="%s"\n' "$key" "$value" >> "$tmp_file"
 
         # 原子替换
-        mv "$tmp_file" "$ENV_FILE"
+        mv "$tmp_file" "$env_file"
 
-    ) 200>"$ENV_FILE.lock"
+    ) 200>"$env_file.lock"
 }
 
 
@@ -140,7 +146,7 @@ scuid() {
   bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/XRevise.sh)
 }
 load_env() {
-    local env_file="${1:-$ENV_FILE}"
+    local env_file="${1:-$CATMIENV_FILE}"
 
     # 1. 检查文件是否存在
     if [ ! -f "$env_file" ]; then
@@ -200,67 +206,7 @@ load_env() {
 
     echo "成功：已安全加载环境配置文件 $env_file"
 }
-Cload_env() {
-    local CATMIENV_FILE="${1:-$CATMIENV_FILE}"
 
-    # 1. 检查文件是否存在
-    if [ ! -f "$CATMIENV_FILE" ]; then
-        echo "错误：env 文件不存在 -> $CATMIENV_FILE"
-        return 1
-    fi
-
-    # 2. 逐行读取
-    while IFS= read -r line || [ -n "$line" ]; do
-        # 去除 Windows 换行符 (CRLF)
-        line="${line%$'\r'}"
-
-        # 3. 跳过空行、空白行、注释行
-        [[ -z "${line//[[:space:]]/}" || "$line" =~ ^[[:space:]]*# ]] && continue
-
-        # 4. 必须包含 =
-        if [[ "$line" != *=* ]]; then
-            echo "警告：跳过无效行（缺少 '='）：$line"
-            continue
-        fi
-
-        # 5. 拆分 key=value（只分第一个 =）
-        key="${line%%=*}"
-        value="${line#*=}"
-
-        # 6. trim 空格
-        key="${key#"${key%%[![:space:]]*}"}"
-        key="${key%"${key##*[![:space:]]}"}"
-        value="${value#"${value%%[![:space:]]*}"}"
-        value="${value%"${value##*[![:space:]]}"}"
-
-        # 7. 校验 key
-        if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-            echo "错误：非法的变量名 -> $key"
-            return 1
-        fi
-
-        # 8. 必须是 "value" 格式
-        if [[ ! "$value" =~ ^\".*\"$ ]]; then
-            echo "错误：变量 $key 的值必须包含在双引号内 -> $value"
-            return 1
-        fi
-
-        # 去掉外层引号
-        value="${value:1:-1}"
-
-        # 9. 反转义（顺序非常重要）
-        value="${value//\\\\/\\}"   # \\ -> \
-        value="${value//\\\"/\"}"   # \" -> "
-        value="${value//\\\$/\$}"   # \$ -> $
-
-        # 10. 设置变量
-        printf -v "$key" '%s' "$value"
-        export "$key"
-
-    done < "$CATMIENV_FILE"
-
-    echo "成功：已安全加载环境配置文件 $CATMIENV_FILE"
-}
 # ================= Web 选择 =================
 webcn() {
 echo "请选择 Web 服务安装方式："
@@ -268,24 +214,24 @@ echo "1. 安装 Nginx"
 echo "2. 安装 Caddy"
 echo "3. 跳过网页配置"
 read -p "请输入选项 (1/2/3): " WEB_CHOICE
-update_env WEB_CHOICE "$WEB_CHOICE"
+update_env $xrayconf WEB_CHOICE "$WEB_CHOICE"
 if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
     
     read -p "请输入监听端口 (默认 443): " NPORT
     NPORT=${NPORT:-443}
-    update_env NPORT "$NPORT"
+    update_env $xrayconf NPORT "$NPORT"
     
     bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh)
-    Cload_env
+    load_env
     read -p "请输入申请证书的域名: " DOMAIN_LOWER   
-    update_env DOMAIN_LOWER "$DOMAIN_LOWER"
+    update_env $xrayconf DOMAIN_LOWER "$DOMAIN_LOWER"
     bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/nconf.sh)
 elif [ "$WEB_CHOICE" = "2" ]; then
     
     read -p "请输入未cdn域名 " RDOMAIN_LOWE
     read -p "请输入申请证书的域名: " DOMAIN_LOWER    
-    update_env DOMAIN_LOWER "$DOMAIN_LOWER"
-    update_env RDOMAIN_LOWE "$RDOMAIN_LOWE"
+    update_env $xrayconf DOMAIN_LOWER "$DOMAIN_LOWER"
+    update_env $xrayconf RDOMAIN_LOWE "$RDOMAIN_LOWE"
 
     bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/cconf.sh)
 fi
@@ -376,7 +322,7 @@ cat "$INSTALL_DIR/clash-meta.yaml"
 main(){
     xray_install
     scuid
-    load_env
+    load_env $xrayconf
     webcn
     webxz
     start_xray
