@@ -130,54 +130,74 @@ update_env() {
     ) 200>"$env_file.lock"
 }
 
+
 webxn() {
-echo "请选择 Web 服务安装方式："
-echo "1. 安装 Nginx"
-echo "2. 安装 Caddy"
+    set -e
 
-read -p "请输入选项 (1/2): " Conversion_CHOICE
+    print_info "请选择 Web 服务安装方式："
+    print_info "1. 安装 Nginx"
+    print_info "2. 安装 Caddy"
 
-if [ "$Conversion_CHOICE" = "1" ] ; then
-    echo "=== 停止并卸载 Caddy ==="
-    systemctl stop caddy 2>/dev/null
-    systemctl disable caddy 2>/dev/null
+    read -rp "请输入选项 (1/2): " Conversion_CHOICE
 
-    # 卸载 Caddy 软件包
-    apt purge -y caddy
-    apt autoremove -y
+    case "$Conversion_CHOICE" in
+    1)
+        print_info "=== 停止并卸载 Caddy ==="
+        systemctl stop caddy 2>/dev/null || true
+        systemctl disable caddy 2>/dev/null || true
 
-    echo "=== 删除 Caddy 配置与数据目录 ==="
-    rm -rf /etc/caddy
-    rm -rf /var/lib/caddy
-    rm -rf /var/www/html
+        apt purge -y caddy || true
+        apt autoremove -y || true
 
-    echo "=== 删除 Caddy APT 仓库源 ==="
-    rm -f /etc/apt/sources.list.d/caddy-stable.list
-    rm -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+        print_info "=== 删除 Caddy 配置 ==="
+        rm -rf /etc/caddy /var/lib/caddy
 
-    apt update -y
+        print_info "=== 删除 Caddy 源 ==="
+        rm -f /etc/apt/sources.list.d/caddy-stable.list
+        rm -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 
-    echo "Caddy 已卸载完成"
-    bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh)
-    load_env
-     bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/nconf.sh)
-     bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh) 
-elif [ "$Conversion_CHOICE" = "2" ]; then
- echo "=== 停止并卸载 Nginx ==="
-    systemctl stop nginx 2>/dev/null
-    systemctl disable nginx 2>/dev/null
+        apt update -y
 
-    apt purge -y nginx nginx-common nginx-full
-    apt autoremove -y
+        print_info "Caddy 已卸载完成"
 
-    echo "Nginx 已卸载完成"
-    
-    read -p "请输入未cdn域名 " RDOMAIN_LOWE
-       
-    update_env $xrayconf RDOMAIN_LOWE "$RDOMAIN_LOWE"
+        
+        bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh)
+        load_env "$CATMIENV_FILE"
+        bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/nconf.sh)
+        bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/nginx.sh)
+        ;;
 
-    bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/cconf.sh)
-    bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh)
-fi
+    2)
+        print_info "=== 停止并卸载 Nginx ==="
+        systemctl stop nginx 2>/dev/null || true
+        systemctl disable nginx 2>/dev/null || true
+
+        apt purge -y nginx nginx-common nginx-full || true
+        apt autoremove -y || true
+
+        print_info "Nginx 已卸载完成"
+
+        read -rp "请输入未 CDN 域名: " RDOMAIN_LOWE
+
+        update_env "$xrayconf" "RDOMAIN_LOWE" "$RDOMAIN_LOWE"
+
+        export RDOMAIN_LOWE
+
+        bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/cconf.sh)
+        bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh)
+        ;;
+
+    *)
+        print_error "❌ 无效输入"
+        return 1
+        ;;
+    esac
 }
 load_env
+if [[ -d "$DINSTALL_CATMI" && -f "$DINSTALL_CATMI/catmi.env" ]]; then
+webxn
+    
+else
+    print_error "目录或文件不存在"
+    bash <(curl -fsSL https://cfgithub.gw2333.workers.dev/https://github.com/mi1314cat/xary-core/raw/refs/heads/main/xray-panel.sh)
+fi
