@@ -297,6 +297,7 @@ load_env() {
         echo "env 文件不存在：$ENV_FILE"
     fi
 }
+load_env
 nx_inbounds
 out_conf
 n_meta
