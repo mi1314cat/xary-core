@@ -1,3 +1,12 @@
+# 打印带颜色的消息
+print_info() {
+    echo -e "${GREEN}[Info]${PLAIN} $1"
+}
+
+print_error() {
+    echo -e "${RED}[Error]${PLAIN} $1"
+}
+
 INSTALL_DIR="/root/catmi/xray"
 ENV_FILE="$INSTALL_DIR/install_info.env"
 
