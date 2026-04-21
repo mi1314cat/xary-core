@@ -140,21 +140,126 @@ scuid() {
   bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/XRevise.sh)
 }
 load_env() {
-    if [ -f "$ENV_FILE" ]; then
-        # 检查 env 文件格式是否正确
-        if grep -qEv '^[A-Za-z_][A-Za-z0-9_]*=".*"$' "$ENV_FILE"; then
-            echo "⚠ env 文件格式异常：$ENV_FILE"
+    local env_file="${1:-$ENV_FILE}"
+
+    # 1. 检查文件是否存在
+    if [ ! -f "$env_file" ]; then
+        echo "错误：env 文件不存在 -> $env_file"
+        return 1
+    fi
+
+    # 2. 逐行读取
+    while IFS= read -r line || [ -n "$line" ]; do
+        # 去除 Windows 换行符 (CRLF)
+        line="${line%$'\r'}"
+
+        # 3. 跳过空行、空白行、注释行
+        [[ -z "${line//[[:space:]]/}" || "$line" =~ ^[[:space:]]*# ]] && continue
+
+        # 4. 必须包含 =
+        if [[ "$line" != *=* ]]; then
+            echo "警告：跳过无效行（缺少 '='）：$line"
+            continue
+        fi
+
+        # 5. 拆分 key=value（只分第一个 =）
+        key="${line%%=*}"
+        value="${line#*=}"
+
+        # 6. trim 空格
+        key="${key#"${key%%[![:space:]]*}"}"
+        key="${key%"${key##*[![:space:]]}"}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+
+        # 7. 校验 key
+        if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            echo "错误：非法的变量名 -> $key"
             return 1
         fi
 
-        # 安全加载
-        set -a
-        source "$ENV_FILE"
-        set +a
-        echo "已加载 env：$ENV_FILE"
-    else
-        echo "env 文件不存在：$ENV_FILE"
+        # 8. 必须是 "value" 格式
+        if [[ ! "$value" =~ ^\".*\"$ ]]; then
+            echo "错误：变量 $key 的值必须包含在双引号内 -> $value"
+            return 1
+        fi
+
+        # 去掉外层引号
+        value="${value:1:-1}"
+
+        # 9. 反转义（顺序非常重要）
+        value="${value//\\\\/\\}"   # \\ -> \
+        value="${value//\\\"/\"}"   # \" -> "
+        value="${value//\\\$/\$}"   # \$ -> $
+
+        # 10. 设置变量
+        printf -v "$key" '%s' "$value"
+        export "$key"
+
+    done < "$env_file"
+
+    echo "成功：已安全加载环境配置文件 $env_file"
+}
+Cload_env() {
+    local CATMIENV_FILE="${1:-$CATMIENV_FILE}"
+
+    # 1. 检查文件是否存在
+    if [ ! -f "$CATMIENV_FILE" ]; then
+        echo "错误：env 文件不存在 -> $CATMIENV_FILE"
+        return 1
     fi
+
+    # 2. 逐行读取
+    while IFS= read -r line || [ -n "$line" ]; do
+        # 去除 Windows 换行符 (CRLF)
+        line="${line%$'\r'}"
+
+        # 3. 跳过空行、空白行、注释行
+        [[ -z "${line//[[:space:]]/}" || "$line" =~ ^[[:space:]]*# ]] && continue
+
+        # 4. 必须包含 =
+        if [[ "$line" != *=* ]]; then
+            echo "警告：跳过无效行（缺少 '='）：$line"
+            continue
+        fi
+
+        # 5. 拆分 key=value（只分第一个 =）
+        key="${line%%=*}"
+        value="${line#*=}"
+
+        # 6. trim 空格
+        key="${key#"${key%%[![:space:]]*}"}"
+        key="${key%"${key##*[![:space:]]}"}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+
+        # 7. 校验 key
+        if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            echo "错误：非法的变量名 -> $key"
+            return 1
+        fi
+
+        # 8. 必须是 "value" 格式
+        if [[ ! "$value" =~ ^\".*\"$ ]]; then
+            echo "错误：变量 $key 的值必须包含在双引号内 -> $value"
+            return 1
+        fi
+
+        # 去掉外层引号
+        value="${value:1:-1}"
+
+        # 9. 反转义（顺序非常重要）
+        value="${value//\\\\/\\}"   # \\ -> \
+        value="${value//\\\"/\"}"   # \" -> "
+        value="${value//\\\$/\$}"   # \$ -> $
+
+        # 10. 设置变量
+        printf -v "$key" '%s' "$value"
+        export "$key"
+
+    done < "$CATMIENV_FILE"
+
+    echo "成功：已安全加载环境配置文件 $CATMIENV_FILE"
 }
 # ================= Web 选择 =================
 webcn() {
@@ -170,8 +275,8 @@ if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
     NPORT=${NPORT:-443}
     update_env NPORT "$NPORT"
     
-    dest_server
-    
+    bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh)
+    Cload_env
     read -p "请输入申请证书的域名: " DOMAIN_LOWER   
     update_env DOMAIN_LOWER "$DOMAIN_LOWER"
     bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/nconf.sh)
@@ -185,32 +290,8 @@ elif [ "$WEB_CHOICE" = "2" ]; then
     bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/cconf.sh)
 fi
 }
-dest_server() {
-if [ -x /bin/bash ]; then
-    # 靠你原脚本位置调用 domains.sh（容错）
-    if curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh >/dev/null 2>&1; then
-        bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh) || print_info "domains.sh 执行结束（非致命）"
-    else
-        print_info "无法下载 domains.sh（可能离线），跳过该步骤"
-    fi
-fi
 
-# 读取 dest_server，容错处理
-dest_server=""
-if [ -f /root/catmi/dest_server.txt ]; then
-    dest_server=$(grep -Eo '[:：]\s*[^[:space:]]+' /root/catmi/dest_server.txt | sed 's/[:：]\s*//g' | head -n1)
-    # 也尝试直接读取整行 key=value
-    if [ -z "$dest_server" ]; then
-        dest_server=$(grep -E '^dest_server' /root/catmi/dest_server.txt 2>/dev/null | sed 's/.*[:=：]\s*//g' | head -n1)
-    fi
-fi
-
-if [ -z "$dest_server" ]; then
-    print_error "未检测到有效的 dest_server（/root/catmi/dest_server.txt），请先确保文件存在并包含 dest_server: your.domain"
-    exit 1
-fi
-print_info "目标域名 dest_server=$dest_server"
-}
+     
 webxz() {
     if [[ "$WEB_CHOICE" == "1" ]]; then
         print_info "选择安装 Nginx..."
