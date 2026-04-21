@@ -1,4 +1,9 @@
 # 打印带颜色的消息
+GREEN="\033[32m"
+RED="\033[31m"
+YELLOW="\033[33m"
+PLAIN="\033[0m"
+
 print_info() {
     echo -e "${GREEN}[Info]${PLAIN} $1"
 }
