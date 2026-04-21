@@ -255,7 +255,11 @@ fi
 print_info "xrayls 服务已启动并正在运行"
 }
 
+outconf(){
+cat "$INSTALL_DIR/v2ray.txt"
+cat "$INSTALL_DIR/clash-meta.yaml"
 
+}
 # ================= 主流程 =================
 main(){
     xray_install
@@ -264,6 +268,7 @@ main(){
     webcn
     webxz
     start_xray
+    outconf
     print_info "完成"
 }
 
