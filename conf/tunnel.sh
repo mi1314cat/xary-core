@@ -1,9 +1,7 @@
 #!/bin/bash
 
-PROTO="tunnel"   # ← 你未来只需要改这里就能复用整个脚本
-
-BASE_DIR="/root/catmi/xray"
-CONF_DIR="$BASE_DIR/$PROTO"
+PROTO="tunnel"   # ← 未来你只需要改这里就能复用整个脚本（vless/vmess/reality）
+CONF_DIR="/root/catmi/xray/conf"
 mkdir -p "$CONF_DIR"
 
 # 显示所有配置
@@ -27,11 +25,11 @@ list_configs() {
     echo "-------------------------------------"
 }
 
+# 新增配置
 add_config() {
     read -p "请输入目标 IP: " ip
     read -p "请输入目标端口: " tport
 
-    # 协议选择菜单
     echo "请选择协议类型:"
     echo "1) tcp"
     echo "2) udp"
@@ -74,7 +72,6 @@ EOF
     echo "本地端口: $lport"
     echo "转发到: $ip:$tport ($net)"
 }
-
 
 # 删除配置
 delete_config() {
