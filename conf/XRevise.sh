@@ -5,22 +5,53 @@ update_env() {
     local key="$1"
     local value="$2"
 
-    # key 必须是合法的 env 变量名
+    # 校验 key
     [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || {
         echo "Invalid key: $key"
         return 1
     }
 
-    # 转义 value 中的双引号
-    value="${value//\"/\\\"}"
-
+    # 确保目录 & 文件
+    mkdir -p "$(dirname "$ENV_FILE")"
     [ -f "$ENV_FILE" ] || touch "$ENV_FILE"
 
-    if grep -q "^${key}=" "$ENV_FILE"; then
-        sed -i "s|^${key}=.*|${key}=\"${value}\"|" "$ENV_FILE"
+    # 获取权限 & 属主（兼容 Linux / BSD）
+    local mode owner group
+    if mode=$(stat -c "%a" "$ENV_FILE" 2>/dev/null); then
+        owner=$(stat -c "%u" "$ENV_FILE")
+        group=$(stat -c "%g" "$ENV_FILE")
     else
-        echo "${key}=\"${value}\"" >> "$ENV_FILE"
+        mode=$(stat -f "%Lp" "$ENV_FILE")
+        owner=$(stat -f "%u" "$ENV_FILE")
+        group=$(stat -f "%g" "$ENV_FILE")
     fi
+
+    # 转义 value
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//\$/\\$}"
+
+    # 加锁 + 自动释放
+    (
+        flock 200
+
+        local tmp_file
+        tmp_file=$(mktemp "$(dirname "$ENV_FILE")/.env.tmp.XXXXXX")
+
+        # 先设置权限
+        chmod "$mode" "$tmp_file"
+        chown "$owner":"$group" "$tmp_file" 2>/dev/null || true
+
+        # 精确删除旧 key（严格匹配 key=）
+        awk -v k="$key" 'index($0, k"=") != 1' "$ENV_FILE" > "$tmp_file"
+
+        # 写入新值
+        printf '%s="%s"\n' "$key" "$value" >> "$tmp_file"
+
+        # 原子替换
+        mv "$tmp_file" "$ENV_FILE"
+
+    ) 200>"$ENV_FILE.lock"
 }
 # 随机生成 WS 路径（更安全、更兼容）
 generate_ws_path() {
