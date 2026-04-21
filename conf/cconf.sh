@@ -37,7 +37,7 @@ cat <<EOF > "$INSTALL_DIR/conf/01.json"
    "inbounds": [
       {
          "listen": "0.0.0.0",
-         "port": 443,
+         "port": ${PORT},
          "protocol": "vless",
          "settings": {
             "clients": [
