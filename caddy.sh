@@ -208,7 +208,7 @@ ${DOMAIN_LOWER} ${RDOMAIN_LOWE} {
 }
 EOF
 systemctl restart caddy
-systemctl status caddy
+systemctl status caddy --no-pager || true
 }
 ssl() {
 echo "请选择要申请证书的方式:"
