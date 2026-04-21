@@ -181,8 +181,7 @@ webxn() {
 
         update_env "$xrayconf" "RDOMAIN_LOWE" "$RDOMAIN_LOWE"
 
-        export RDOMAIN_LOWE
-
+        
         bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/cconf.sh)
         bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh)
         ;;
@@ -193,8 +192,10 @@ webxn() {
         ;;
     esac
 }
-load_env
+
 if [[ -d "$DINSTALL_CATMI" && -f "$DINSTALL_CATMI/catmi.env" ]]; then
+print_info "检测到已安装环境"
+
 webxn
     
 else
