@@ -290,7 +290,7 @@ proxies:
         h-max-reusable-secs: 1800-3000
   - name: 出站5-上xhttp+Reality下xhttp+TLS+CDN
     type: vless
-    server: YOUR_VPS_IP
+    server: "${PUBLIC_IP}"
     port: 443
     uuid: ${UUID2}
     encryption: none
