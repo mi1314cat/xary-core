@@ -254,11 +254,12 @@ EOF
     systemctl reload nginx
 }
 
-mox=$(grep '^mox' /root/catmi/install_info.txt | sed 's/.*[:：]//')
-NINSTALL_DIR="/root/catmi/$mox"
-ENV_FILE="$NINSTALL_DIR/install_info.env"
+DINSTALL_CATMI="/root/catmi"
+CATMIENV_FILE="$DINSTALL_CATMI/catmi.env"
+
+
 load_env() {
-    local env_file="${1:-$ENV_FILE}"
+    local env_file="${1:-$CATMIENV_FILE}"
 
     # 1. 检查文件是否存在
     if [ ! -f "$env_file" ]; then
@@ -340,7 +341,11 @@ else
     exit 1
 fi
 
-
+NINSTALL_DIR="/root/catmi/$mox"
+load_env
+NINSTALL_DIR"/root/catmi/$mode"
+NINSTALL_ENV="$NINSTALL_DIR/install_info.env"
+load_env $NINSTALL_ENV
 
 
 
@@ -348,7 +353,6 @@ fi
     
 
 nginxsl
-rm -f /root/catmi/install_info.txt
 
 
 
