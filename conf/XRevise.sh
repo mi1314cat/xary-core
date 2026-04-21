@@ -22,11 +22,10 @@ update_env() {
         echo "${key}=\"${value}\"" >> "$ENV_FILE"
     fi
 }
-# 随机生成 WS 路径
+# 随机生成 WS 路径（更安全、更兼容）
 generate_ws_path() {
-    echo "/$(tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 10)"
+    echo "/$(openssl rand -hex 4)"
 }
-
 
 # 随机生成 UUID
 generate_uuid() {
@@ -35,7 +34,7 @@ generate_uuid() {
 
 usid() {
 # 生成短 id
-short_id=$(dd if=/dev/urandom bs=4 count=2 2>/dev/null | xxd -p -c 8)
+short_id=$(openssl rand -hex 4)
 
 
 
@@ -162,6 +161,22 @@ generate_port() {
         return 0
     done
 }
+# 检查 openssl 是否存在
+if ! command -v openssl >/dev/null 2>&1; then
+    echo "[Info] openssl 未安装，正在自动安装..."
+
+    if command -v apt >/dev/null 2>&1; then
+        apt update -y && apt install -y openssl
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y openssl
+    elif command -v apk >/dev/null 2>&1; then
+        apk add openssl
+    else
+        echo "[Error] 无法自动安装 openssl，请手动安装"
+        exit 1
+    fi
+fi
+
 PORT=$(generate_port "Reality (外部 TCP)")
 update_env PORT "$PORT"
 getkey
