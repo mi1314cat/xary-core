@@ -69,7 +69,7 @@ load_env() {
         echo "env 文件不存在：$ENV_FILE"
     fi
 }
-load_env
+
 XRevise() {
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/XRevise.sh)
 load_env
