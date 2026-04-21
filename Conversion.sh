@@ -162,6 +162,8 @@ webxn() {
 
     read -p "请输入监听端口 (默认 443): " NPORT
     NPORT=${NPORT:-443}
+    read -p "请输入申请证书的域名: " DOMAIN_LOWER   
+    update_env $xrayconf DOMAIN_LOWER "$DOMAIN_LOWER"
     update_env $xrayconf NPORT "$NPORT"
         bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh)
         load_env "$CATMIENV_FILE"
@@ -182,7 +184,8 @@ webxn() {
         read -rp "请输入未 CDN 域名: " RDOMAIN_LOWE
 
         update_env "$xrayconf" "RDOMAIN_LOWE" "$RDOMAIN_LOWE"
-
+        read -p "请输入申请证书的域名: " DOMAIN_LOWER   
+        update_env $xrayconf DOMAIN_LOWER "$DOMAIN_LOWER"
         
         bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/cconf.sh)
         bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/caddy.sh)
