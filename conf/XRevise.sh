@@ -165,12 +165,7 @@ getkey() {
     echo "$hash32" > /usr/local/etc/xray/hash32
     chmod 600 /usr/local/etc/xray/*
 
-    # 输出
-    echo "[Info] Reality 密钥生成完成："
-    echo "PrivateKey: $private_key"
-    echo "PublicKey : $public_key"
-    echo "Password  : $password"
-    echo "Hash32    : $hash32"
+  
 }
 
 generate_port() {
