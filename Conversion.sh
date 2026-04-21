@@ -160,7 +160,9 @@ webxn() {
 
         print_info "Caddy 已卸载完成"
 
-        
+    read -p "请输入监听端口 (默认 443): " NPORT
+    NPORT=${NPORT:-443}
+    update_env $xrayconf NPORT "$NPORT"
         bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh)
         load_env "$CATMIENV_FILE"
         bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/nconf.sh)
