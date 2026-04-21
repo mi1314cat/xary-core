@@ -341,7 +341,7 @@ else
     exit 1
 fi
 
-NINSTALL_DIR="/root/catmi/$mox"
+
 load_env
 NINSTALL_DIR"/root/catmi/$mode"
 NINSTALL_ENV="$NINSTALL_DIR/install_info.env"
