@@ -135,7 +135,26 @@ update_env() {
     ) 200>"$env_file.lock"
 }
 
-
+generate_port() {
+    local protocol="$1"
+    while :; do
+        candidate=$((RANDOM % 10001 + 10000))
+        read -p "请为 ${protocol} 输入监听端口(回车使用随机端口 $candidate): " user_input
+        port=${user_input:-$candidate}
+        # 检查是否为数字且在 1-65535 范围内
+        if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+            echo "端口 $port 无效，请输入 1-65535 的数字"
+            continue
+        fi
+        # 检查端口是否被占用
+        if ss -tuln | awk '{print $5}' | grep -E -q "(:|\\])${port}\$"; then
+            echo "端口 $port 被占用，请输入其他端口"
+            continue
+        fi
+        echo "$port"
+        return 0
+    done
+}
 webxn() {
     set -e
 
@@ -165,8 +184,10 @@ webxn() {
 
         print_info "Caddy 已卸载完成"
 
-    read -p "请输入监听端口 (默认 443): " NPORT
+    read -p "请输入nginx监听端口 (默认 443): " NPORT
     NPORT=${NPORT:-443}
+    PORT=$(generate_port "Reality (外部 TCP)")
+    update_env $xrayconf PORT "$PORT"
     read -p "请输入申请证书的域名: " DOMAIN_LOWER   
     update_env $xrayconf DOMAIN_LOWER "$DOMAIN_LOWER"
     update_env $xrayconf NPORT "$NPORT"
@@ -185,7 +206,9 @@ webxn() {
         apt autoremove -y || true
 
         print_info "Nginx 已卸载完成"
-
+        read -rp "Reality (外部 TCP): "  PORT
+        PORT=${PORT:-443}
+        update_env $xrayconf PORT "$PORT"
         read -rp "请输入未 CDN 域名: " RDOMAIN_LOWE
 
         update_env "$xrayconf" "RDOMAIN_LOWE" "$RDOMAIN_LOWE"
