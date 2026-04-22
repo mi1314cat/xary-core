@@ -109,38 +109,7 @@ update_env() {
 update_env $CATMIENV_FILE mode xray
 # ================= 安装 Xray =================
 xray_install() {
-# 安装 xray（保留你原来的安装方式）
-print_info "安装最新 Xray..."
-if ! bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; then
-    print_error "Xray 安装失败，请检查网络与安装脚本来源"
-    exit 1
-fi
-
-# 确认 xray 二进制存在
-if [ ! -x /usr/local/bin/xray ]; then
-    print_error "/usr/local/bin/xray 不存在或不可执行，安装可能失败"
-    exit 1
-fi
-
-# 移动并重命名为 xrayls（保留可执行权限）
-mv -f /usr/local/bin/xray "$INSTALL_DIR/xrayls" 2>/dev/null || cp -f /usr/local/bin/xray "$INSTALL_DIR/xrayls"
-chmod +x "$INSTALL_DIR/xrayls"
-
-# systemd service
-cat <<EOF >/etc/systemd/system/xrayls.service
-[Unit]
-Description=xrayls Service
-After=network.target
-
-[Service]
-ExecStart=$INSTALL_DIR/xrayls -confdir $INSTALL_DIR/conf
-Restart=on-failure
-RestartSec=3
-LimitNOFILE=65536
-
-[Install]
-WantedBy=multi-user.target
-EOF
+https://github.com/mi1314cat/xary-core/raw/refs/heads/main/unused/xray_install.sh
 }
 scuid() {
   bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/XRevise.sh)
