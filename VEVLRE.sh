@@ -73,7 +73,7 @@ generate_port() {
 update_env $CATMIENV_FILE mode xray
 # ================= 安装 Xray =================
 xray_install() {
-https://github.com/mi1314cat/xary-core/raw/refs/heads/main/unused/xray_install.sh
+bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/unused/xray_install.sh)
 }
 scuid() {
   bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/XRevise.sh)
