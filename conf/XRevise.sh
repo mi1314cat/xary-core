@@ -182,26 +182,7 @@ getkey() {
   
 }
 
-generate_port() {
-    local protocol="$1"
-    while :; do
-        candidate=$((RANDOM % 10001 + 10000))
-        read -p "请为 ${protocol} 输入监听端口(回车使用随机端口 $candidate): " user_input
-        port=${user_input:-$candidate}
-        # 检查是否为数字且在 1-65535 范围内
-        if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-            echo "端口 $port 无效，请输入 1-65535 的数字"
-            continue
-        fi
-        # 检查端口是否被占用
-        if ss -tuln | awk '{print $5}' | grep -E -q "(:|\\])${port}\$"; then
-            echo "端口 $port 被占用，请输入其他端口"
-            continue
-        fi
-        echo "$port"
-        return 0
-    done
-}
+
 
 generate_all_env() {
 # 检查 openssl 是否存在
@@ -219,8 +200,7 @@ if ! command -v openssl >/dev/null 2>&1; then
         exit 1
     fi
 fi
-    PORT=$(generate_port "Reality (外部 TCP)")
-    update_env PORT "$PORT"
+    
     getkey
     usid
 }
