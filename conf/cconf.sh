@@ -80,7 +80,7 @@ cat <<EOF > "$INSTALL_DIR/conf/caddy.json"
             "realitySettings": {
                "privateKey": "$(cat /usr/local/etc/xray/privatekey)",
                "serverNames": [
-                  "${DOMAIN_LOWER}",
+                  "${CDOMAIN_LOWER}",
                   "${RDOMAIN_LOWE}"
                ],
                "shortIds": [
@@ -175,12 +175,12 @@ cat <<EOF > "$ngconfout_DIR/Cxhttp.txt"
 
 {
   "downloadSettings": {
-    "address": "${DOMAIN_LOWER}", 
+    "address": "${CDOMAIN_LOWER}", 
     "port": 443, 
     "network": "xhttp", 
     "security": "tls", 
     "tlsSettings": {
-      "serverName": "${DOMAIN_LOWER}", 
+      "serverName": "${CDOMAIN_LOWER}", 
       "allowInsecure": false
     }, 
     "xhttpSettings": {
@@ -193,10 +193,10 @@ EOF
 
 # 生成分享链接（将 pbk 指向 publickey）
 share_link="
-vless://${UUID}@${link_ip}:${CRPORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${DOMAIN_LOWER}&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=${short_id}&type=tcp&headerType=none#Reality
-vless://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&allowInsecure=1&type=ws&host=${DOMAIN_LOWER}&path=${WS_PATH1}#vless-ws-tls
-vmess://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&allowInsecure=1&type=ws&host=${DOMAIN_LOWER}&path=${WS_PATH}#vmess-ws-tls
-vless://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&type=xhttp&host=${DOMAIN_LOWER}&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
+vless://${UUID}@${link_ip}:${CRPORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${CDOMAIN_LOWER}&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=${short_id}&type=tcp&headerType=none#Reality
+vless://${UUID}@${CDOMAIN_LOWER}:443?encryption=none&security=tls&sni=${CDOMAIN_LOWER}&allowInsecure=1&type=ws&host=${CDOMAIN_LOWER}&path=${WS_PATH1}#vless-ws-tls
+vmess://${UUID}@${CDOMAIN_LOWER}:443?encryption=none&security=tls&sni=${CDOMAIN_LOWER}&allowInsecure=1&type=ws&host=${CDOMAIN_LOWER}&path=${WS_PATH}#vmess-ws-tls
+vless://${UUID}@${CDOMAIN_LOWER}:443?encryption=none&security=tls&sni=${CDOMAIN_LOWER}&type=xhttp&host=${CDOMAIN_LOWER}&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
 "
 echo "${share_link}" > "$ngconfout_DIR/Cv2ray.txt"
 
@@ -249,7 +249,7 @@ proxies:
         h-max-reusable-secs: 1800-3000
   - name: 出站3-cdn上行+xhttp下行
     type: vless
-    server: ${DOMAIN_LOWER}
+    server: ${CDOMAIN_LOWER}
     port: 443
     uuid: ${UUID2}
     encryption: none
@@ -258,11 +258,11 @@ proxies:
     tls: true
     alpn:
       - h2
-    servername: ${DOMAIN_LOWER}
+    servername: ${CDOMAIN_LOWER}
     client-fingerprint: chrome
     skip-cert-verify: true
     xhttp-opts:
-      host: ${DOMAIN_LOWER}
+      host: ${CDOMAIN_LOWER}
       path: ${WS_PATH2}
       mode: auto
       reuse-settings:
@@ -282,7 +282,7 @@ proxies:
           h-max-reusable-secs: 1800-3000
   - name: 出站4-cdn上下行
     type: vless
-    server: ${DOMAIN_LOWER}
+    server: ${CDOMAIN_LOWER}
     port: 443
     uuid: ${UUID2}
     encryption: none
@@ -291,11 +291,11 @@ proxies:
     tls: true
     alpn:
       - h2
-    servername: ${DOMAIN_LOWER}
+    servername: ${CDOMAIN_LOWER}
     client-fingerprint: chrome
     skip-cert-verify: true
     xhttp-opts:
-      host: ${DOMAIN_LOWER}
+      host: ${CDOMAIN_LOWER}
       path: ${WS_PATH2}
       mode: auto
       reuse-settings:
@@ -320,7 +320,7 @@ proxies:
       public-key:  $(cat /usr/local/etc/xray/publickey)
       short-id: ${short_id}
     xhttp-opts:
-      host: ${DOMAIN_LOWER}
+      host: ${CDOMAIN_LOWER}
       path: ${WS_PATH2}
       mode: auto
       reuse-settings:
@@ -330,12 +330,12 @@ proxies:
       download-settings:
         path: ${WS_PATH2}
         host: ""
-        server: ${DOMAIN_LOWER}
+        server: ${CDOMAIN_LOWER}
         port: 443
         tls: true
         alpn:
           - h2
-        servername: ${DOMAIN_LOWER}
+        servername: ${CDOMAIN_LOWER}
         client-fingerprint: chrome
         skip-cert-verify: true
         reality-opts:
@@ -353,65 +353,6 @@ INSTALL_DIR="/root/catmi/xray"
 ngconfout_DIR="$INSTALL_DIR/out"
 ENV_FILE="$INSTALL_DIR/install_info.env"
 load_env() {
-    local env_file="${1:-$ENV_FILE}"
-
-    # 1. 检查文件是否存在
-    if [ ! -f "$env_file" ]; then
-        echo "错误：env 文件不存在 -> $env_file"
-        return 1
-    fi
-
-    # 2. 逐行读取
-    while IFS= read -r line || [ -n "$line" ]; do
-        # 去除 Windows 换行符 (CRLF)
-        line="${line%$'\r'}"
-
-        # 3. 跳过空行、空白行、注释行
-        [[ -z "${line//[[:space:]]/}" || "$line" =~ ^[[:space:]]*# ]] && continue
-
-        # 4. 必须包含 =
-        if [[ "$line" != *=* ]]; then
-            echo "警告：跳过无效行（缺少 '='）：$line"
-            continue
-        fi
-
-        # 5. 拆分 key=value（只分第一个 =）
-        key="${line%%=*}"
-        value="${line#*=}"
-
-        # 6. trim 空格
-        key="${key#"${key%%[![:space:]]*}"}"
-        key="${key%"${key##*[![:space:]]}"}"
-        value="${value#"${value%%[![:space:]]*}"}"
-        value="${value%"${value##*[![:space:]]}"}"
-
-        # 7. 校验 key
-        if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-            echo "错误：非法的变量名 -> $key"
-            return 1
-        fi
-
-        # 8. 必须是 "value" 格式
-        if [[ ! "$value" =~ ^\".*\"$ ]]; then
-            echo "错误：变量 $key 的值必须包含在双引号内 -> $value"
-            return 1
-        fi
-
-        # 去掉外层引号
-        value="${value:1:-1}"
-
-        # 9. 反转义（顺序非常重要）
-        value="${value//\\\\/\\}"   # \\ -> \
-        value="${value//\\\"/\"}"   # \" -> "
-        value="${value//\\\$/\$}"   # \$ -> $
-
-        # 10. 设置变量
-        printf -v "$key" '%s' "$value"
-        export "$key"
-
-    done < "$env_file"
-
-    echo "成功：已安全加载环境配置文件 $env_file"
 }
 
 load_env
