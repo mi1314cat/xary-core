@@ -117,34 +117,51 @@ detect_listen_ip() {
     local has_ipv4=false
     local has_ipv6=false
 
-    ip -4 addr show scope global | grep -q inet && has_ipv4=true
-    ip -6 addr show scope global | grep -q inet6 && has_ipv6=true
-
-    if $has_ipv4 && ! $has_ipv6; then
-        print_info "检测到仅 IPv4，使用 0.0.0.0"
-        echo "0.0.0.0"
-        return
+    # 检测真实 IPv4（排除 127.0.0.1）
+    if ip -4 addr show scope global | grep -q "inet "; then
+        has_ipv4=true
     fi
 
-    if ! $has_ipv4 && $has_ipv6; then
-        print_info "检测到仅 IPv6，使用 ::"
-        echo "::"
-        return
+    # 检测真实 IPv6（排除 fe80::）
+    if ip -6 addr show scope global | grep -q "inet6 [2-9a-fA-F]"; then
+        has_ipv6=true
     fi
 
-    if $has_ipv4 && $has_ipv6; then
-        print_info "检测到双栈网络"
-        echo "1) IPv4 (0.0.0.0)"
-        echo "2) IPv6 (::)"
-        printf "请选择监听地址 (默认 1): "
-        read choice
-        [[ "$choice" == "2" ]] && echo "::" || echo "0.0.0.0"
-        return
-    fi
+    print_info "自动检测结果："
+    $has_ipv4 && echo "  - 检测到 IPv4"
+    $has_ipv6 && echo "  - 检测到 IPv6"
+    (! $has_ipv4 && ! $has_ipv6) && echo "  - 未检测到公网 IP（可能是 NAT 或容器环境）"
 
-    print_error "未检测到有效 IP，默认使用 0.0.0.0"
-    echo "0.0.0.0"
+    echo
+    echo "请选择监听地址："
+    echo "1) IPv4 (0.0.0.0)"
+    echo "2) IPv6 (::)"
+    echo "3) 全部自动（根据检测结果推荐）"
+
+    printf "选择 (默认 1): "
+    read choice
+
+    case "$choice" in
+        2)
+            echo "::"
+            ;;
+        3)
+            if $has_ipv4 && ! $has_ipv6; then
+                echo "0.0.0.0"
+            elif ! $has_ipv4 && $has_ipv6; then
+                echo "::"
+            elif $has_ipv4 && $has_ipv6; then
+                echo "0.0.0.0"
+            else
+                echo "0.0.0.0"
+            fi
+            ;;
+        *)
+            echo "0.0.0.0"
+            ;;
+    esac
 }
+
 
 # ================================
 # 显示所有 SOCKS 配置
