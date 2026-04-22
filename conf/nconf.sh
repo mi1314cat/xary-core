@@ -13,7 +13,7 @@ print_error() {
 }
 
 nx_inbounds() {
-cat <<EOF > "$INSTALL_DIR/conf/01.json"
+cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
 {
 
   "log": {
@@ -118,7 +118,7 @@ cat <<EOF > "$INSTALL_DIR/conf/01.json"
     },
     {
       "listen": "0.0.0.0",
-      "port": ${PORT},
+      "port": ${NRPORT},
       "protocol": "vless",
       "settings": {
         "clients": [
@@ -173,8 +173,8 @@ EOF
 }
 # ================= 输出 =================
 out_conf() {
-# 生成 xhttp.json（仅保留一个正确的 JSON）
-cat <<EOF > "$INSTALL_DIR/xhttp.json"
+
+cat <<EOF > "$ngconfout_DIR/Nxhttp.txt"
 {
   "downloadSettings": {
     "address": "${PUBLIC_IP}",
@@ -217,20 +217,20 @@ EOF
 
 # 生成分享链接（将 pbk 指向 publickey）
 share_link="
-vless://${UUID}@${link_ip}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${dest_server}&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=${short_id}&type=tcp&headerType=none#Reality
+vless://${UUID}@${link_ip}:${NRPORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${dest_server}&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=${short_id}&type=tcp&headerType=none#Reality
 vless://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&allowInsecure=1&type=ws&host=${DOMAIN_LOWER}&path=${WS_PATH1}#vless-ws-tls
 vmess://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&allowInsecure=1&type=ws&host=${DOMAIN_LOWER}&path=${WS_PATH}#vmess-ws-tls
 vless://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&type=xhttp&host=${DOMAIN_LOWER}&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
 "
-echo "${share_link}" > "$INSTALL_DIR/v2ray.txt"
+echo "${share_link}" > "$ngconfout_DIR/Nv2ray.txt"
 
 
 }
 n_meta() {
 
-cat << EOF > "$INSTALL_DIR/clash-meta.yaml"
+cat << EOF > "$ngconfout_DIR/Nclash-meta.yaml"
   - name: Reality
-    port: ${PORT}
+    port: ${NRPORT}
     server: ${PUBLIC_IP}
     type: vless
     network: tcp
@@ -280,6 +280,7 @@ EOF
 
 }
 INSTALL_DIR="/root/catmi/xray"
+ngconfout_DIR="$INSTALL_DIR/out"
 ENV_FILE="$INSTALL_DIR/install_info.env"
 load_env() {
     local env_file="${1:-$ENV_FILE}"
