@@ -110,14 +110,6 @@ gen_cert() {
     ok "证书OK"
 }
 
-# ================================
-# reload
-# ================================
-reload_service() {
-    systemctl restart xray 2>/dev/null && ok "xray重启" && return
-    service xray restart 2>/dev/null && ok "xray重启" && return
-    err "未检测到 xray 服务"
-}
 
 # ================================
 # 新增
@@ -178,7 +170,7 @@ EOF
     ok "完成"
     echo -e "\n$link\n"
 
-    reload_service
+    
 }
 
 # ================================
@@ -212,7 +204,7 @@ del() {
         rm -f "$f" "$BASE/$d.crt" "$BASE/$d.key"
 
         ok "已删"
-        reload_service
+        
         return
     done
 
