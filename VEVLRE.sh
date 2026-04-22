@@ -96,9 +96,13 @@ if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
     
     NRPORT=$(generate_port "Reality (外部 TCP)")
     update_env $xrayconf NRPORT "$NRPORT"
-    read -p "请输入申请证书的域名: " DOMAIN_LOWER   
-    update_env $xrayconf NDOMAIN_LOWER "$NDOMAIN_LOWER"
-    update_env $CATMIENV_FILE DOMAIN_LOWER "$DOMAIN_LOWER"
+    read -p "请输入申请证书的域名: " DOMAIN_LOWER
+
+      NDOMAIN_LOWER="$DOMAIN_LOWER"
+
+      update_env $xrayconf NDOMAIN_LOWER "$NDOMAIN_LOWER"
+      update_env $CATMIENV_FILE DOMAIN_LOWER "$DOMAIN_LOWER"
+
     bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/nconf.sh)
 elif [ "$WEB_CHOICE" = "2" ]; then
 
