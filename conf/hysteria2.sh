@@ -9,7 +9,6 @@ YELLOW="\e[33m"
 BLUE="\e[34m"
 MAGENTA="\e[35m"
 CYAN="\e[36m"
-WHITE="\e[97m"
 BOLD="\e[1m"
 RESET="\e[0m"
 
@@ -33,14 +32,11 @@ BASE_DIR="/root/catmi/xray"
 CONF_DIR="$BASE_DIR/conf"
 mkdir -p "$CONF_DIR"
 
-CERT_FILE=""
-KEY_FILE=""
-
 # ================================
 # 依赖检查
 # ================================
 command -v jq >/dev/null 2>&1 || {
-    print_error "未安装 jq，请先执行: apt install jq -y"
+    print_error "未安装 jq，请执行: apt install jq -y"
     exit 1
 }
 
@@ -48,7 +44,11 @@ command -v jq >/dev/null 2>&1 || {
 # 工具函数
 # ================================
 random_uuid() {
-    uuidgen | tr 'A-Z' 'a-z'
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr 'A-Z' 'a-z'
+    else
+        cat /proc/sys/kernel/random/uuid
+    fi
 }
 
 random_domain() {
@@ -58,24 +58,20 @@ random_domain() {
 }
 
 port_in_use() {
-    if command -v ss >/dev/null 2>&1; then
-        ss -tuln | awk '{print $5}' | grep -E -q "(:|])$1$"
-    else
-        netstat -tuln | awk '{print $4}' | grep -E -q "(:|])$1$"
-    fi
+    ss -tuln 2>/dev/null | grep -q ":$1 "
 }
 
 ask_port() {
     local default="$1"
-    local input
-    while true; do
-        printf "请输入 Hysteria2 监听端口 (默认: %s): " "$default"
-        read input
-        port="${input:-$default}"
+    local port
 
-        [[ "$port" =~ ^[0-9]+$ ]] || { print_error "端口必须是数字"; continue; }
-        (( port >= 1 && port <= 65535 )) || { print_error "端口范围错误"; continue; }
-        port_in_use "$port" && { print_error "端口已占用"; continue; }
+    while true; do
+        read -r -p "请输入 Hysteria2 监听端口 (默认: $default): " port
+        port="${port:-$default}"
+
+        [[ "$port" =~ ^[0-9]+$ ]] || { print_error "必须是数字"; continue; }
+        ((port>=1 && port<=65535)) || { print_error "范围错误"; continue; }
+        port_in_use "$port" && { print_error "端口占用"; continue; }
 
         echo "$port"
         return
@@ -83,73 +79,66 @@ ask_port() {
 }
 
 detect_listen_ip() {
-    local has_ipv4=false
-    local has_ipv6=false
+    local has4=false
+    local has6=false
 
-    ip -4 addr show scope global | grep -q "inet " && has_ipv4=true
-    ip -6 addr show scope global | grep -q "inet6 [2-9a-fA-F]" && has_ipv6=true
+    ip -4 addr show scope global | grep -q inet && has4=true
+    ip -6 addr show scope global | grep -q inet6 && has6=true
 
     print_info "自动检测结果："
-    $has_ipv4 && echo "  - 检测到 IPv4"
-    $has_ipv6 && echo "  - 检测到 IPv6"
-    (! $has_ipv4 && ! $has_ipv6) && echo "  - 未检测到公网 IP"
+    $has4 && echo "  - IPv4"
+    $has6 && echo "  - IPv6"
 
-    echo
-    echo "请选择监听地址："
     echo "1) IPv4 (0.0.0.0)"
     echo "2) IPv6 (::)"
-    echo "3) 自动推荐"
+    echo "3) 自动"
 
-    printf "选择 (默认 1): "
-    read choice
+    read -r -p "选择 (默认1): " c
+    c=${c:-1}
 
-    case "$choice" in
+    case "$c" in
         2) echo "::" ;;
         3)
-            if $has_ipv4 && ! $has_ipv6; then echo "0.0.0.0"
-            elif ! $has_ipv4 && $has_ipv6; then echo "::"
+            if $has4 && ! $has6; then echo "0.0.0.0"
+            elif ! $has4 && $has6; then echo "::"
             else echo "0.0.0.0"
             fi
-            ;;
+        ;;
         *) echo "0.0.0.0" ;;
     esac
 }
 
-
-generate_self_signed_cert() {
+generate_cert() {
     local domain="$1"
+    CERT="$BASE_DIR/$domain.crt"
+    KEY="$BASE_DIR/$domain.key"
 
-    CERT_FILE="$BASE_DIR/cert-$domain.crt"
-    KEY_FILE="$BASE_DIR/key-$domain.key"
-
-    [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]] && return
+    [[ -f "$CERT" && -f "$KEY" ]] && return
 
     print_info "生成证书: $domain"
-
     openssl req -x509 -newkey rsa:2048 -nodes \
-        -keyout "$KEY_FILE" \
-        -out "$CERT_FILE" \
-        -days 365 \
-        -subj "/CN=$domain" >/dev/null 2>&1
+        -keyout "$KEY" -out "$CERT" \
+        -days 365 -subj "/CN=$domain" >/dev/null 2>&1
 
-    [[ -f "$CERT_FILE" ]] && print_ok "证书生成成功"
-}
-
-get_next_index() {
-    ls "$CONF_DIR"/$PROTO-*.json 2>/dev/null | \
-    sed -E 's/.*-([0-9]+)\.json/\1/' | sort -n | tail -1
+    print_ok "证书生成成功"
 }
 
 # ================================
-# 显示配置
+# 列表
 # ================================
 list_configs() {
     print_title "配置列表"
 
     for f in "$CONF_DIR"/$PROTO-*.json; do
         [[ -f "$f" ]] || continue
-        num=$(basename "$f" .json | cut -d'-' -f2)
 
+        # 跳过坏 JSON
+        jq empty "$f" 2>/dev/null || {
+            print_error "坏配置: $f"
+            continue
+        }
+
+        num=$(basename "$f" .json | cut -d'-' -f2)
         port=$(jq -r '.inbounds[0].port' "$f")
         uuid=$(jq -r '.inbounds[0].settings.clients[0].auth' "$f")
         domain=$(jq -r '.inbounds[0].streamSettings.tlsSettings.certificates[0].domain' "$f")
@@ -160,33 +149,28 @@ list_configs() {
 }
 
 # ================================
-# 新增配置
+# 新增
 # ================================
 add_config() {
     print_title "新增配置"
 
-    default_ip=$(curl -4 -s ip.sb || hostname -I | awk '{print $1}')
-    read -p "服务器IP (默认:$default_ip): " server_ip
+    default_ip=$(curl -4 -s ip.sb 2>/dev/null || hostname -I | awk '{print $1}')
+    read -r -p "服务器IP (默认:$default_ip): " server_ip
     server_ip="${server_ip:-$default_ip}"
 
     listen_ip=$(detect_listen_ip)
 
     default_port=$((RANDOM % 20000 + 20000))
-    while port_in_use "$default_port"; do
-        default_port=$((RANDOM % 20000 + 20000))
-    done
-
     hysteria_port=$(ask_port "$default_port")
+
     uuid=$(random_uuid)
     domain=$(random_domain)
 
-    generate_self_signed_cert "$domain"
+    generate_cert "$domain"
 
-    next=$(get_next_index)
-    next=$((next + 1))
-    file="$CONF_DIR/$PROTO-$(printf "%02d" $next).json"
+    file="$CONF_DIR/$PROTO-$(date +%s).json"
 
-cat <<EOF > "$file"
+cat > "$file" <<EOF
 {
   "inbounds": [
     {
@@ -196,9 +180,7 @@ cat <<EOF > "$file"
       "settings": {
         "version": 2,
         "clients": [
-          {
-            "auth": "$uuid"
-          }
+          { "auth": "$uuid" }
         ]
       },
       "streamSettings": {
@@ -208,8 +190,8 @@ cat <<EOF > "$file"
           "alpn": ["h3"],
           "certificates": [
             {
-              "certificateFile": "$CERT_FILE",
-              "keyFile": "$KEY_FILE",
+              "certificateFile": "$BASE_DIR/$domain.crt",
+              "keyFile": "$BASE_DIR/$domain.key",
               "domain": "$domain"
             }
           ]
@@ -220,7 +202,14 @@ cat <<EOF > "$file"
 }
 EOF
 
-    link="hysteria2://$uuid@$server_ip:$hysteria_port?sni=$domain&insecure=1#hy2"
+    # 再次校验 JSON
+    jq empty "$file" || {
+        print_error "生成失败(JSON错误)"
+        rm -f "$file"
+        return
+    }
+
+    link="hysteria2://${uuid}@${server_ip}:${hysteria_port}?sni=${domain}&insecure=1#hy2"
 
     print_ok "配置生成成功"
     echo "端口: $hysteria_port"
@@ -232,22 +221,22 @@ EOF
 }
 
 # ================================
-# 删除配置
+# 删除
 # ================================
 delete_config() {
     list_configs
-    read -p "输入编号: " num
+    read -r -p "输入编号: " num
 
-    file="$CONF_DIR/$PROTO-$(printf "%02d" $num).json"
+    file=$(ls "$CONF_DIR"/$PROTO-*.json 2>/dev/null | grep "$num")
 
-    if [[ -f "$file" ]]; then
-        domain=$(jq -r '.inbounds[0].streamSettings.tlsSettings.certificates[0].domain' "$file")
-        rm -f "$file"
-        rm -f "$BASE_DIR/cert-$domain.crt" "$BASE_DIR/key-$domain.key"
-        print_ok "已删除"
-    else
-        print_error "不存在"
-    fi
+    [[ -f "$file" ]] || { print_error "不存在"; return; }
+
+    domain=$(jq -r '.inbounds[0].streamSettings.tlsSettings.certificates[0].domain' "$file")
+
+    rm -f "$file"
+    rm -f "$BASE_DIR/$domain.crt" "$BASE_DIR/$domain.key"
+
+    print_ok "已删除"
 }
 
 # ================================
@@ -262,9 +251,9 @@ main_menu() {
         echo "3) 删除"
         echo "0) 退出"
 
-        read -p "选择: " c
+        read -r -p "选择: " c
 
-        case $c in
+        case "$c" in
             1) list_configs ;;
             2) add_config ;;
             3) delete_config ;;
@@ -272,7 +261,7 @@ main_menu() {
             *) print_error "无效" ;;
         esac
 
-        read -p "回车继续..."
+        read -r -p "回车继续..."
     done
 }
 
