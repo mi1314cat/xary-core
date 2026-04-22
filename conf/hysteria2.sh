@@ -1,159 +1,242 @@
 #!/bin/bash
 
-set -euo pipefail
+# ================================
+# 彩色定义
+# ================================
+RED="\e[31m"
+GREEN="\e[32m"
+YELLOW="\e[33m"
+BLUE="\e[34m"
+MAGENTA="\e[35m"
+CYAN="\e[36m"
+WHITE="\e[97m"
+BOLD="\e[1m"
+RESET="\e[0m"
 
 # ================================
-# 颜色
+# 打印函数（全部输出到 stderr）
 # ================================
-RED="\e[31m"; GREEN="\e[32m"; YELLOW="\e[33m"
-BLUE="\e[34m"; MAGENTA="\e[35m"; CYAN="\e[36m"
-BOLD="\e[1m"; RESET="\e[0m"
+print_info()  { printf "${CYAN}[Info]${RESET} %s\n" "$1" >&2; }
+print_ok()    { printf "${GREEN}[OK]${RESET}  %s\n" "$1" >&2; }
+print_error() { printf "${RED}[Error]${RESET} %s\n" "$1" >&2; }
 
-log() { echo -e "$1" >&2; }
-info() { log "${CYAN}[Info]${RESET} $1"; }
-ok() { log "${GREEN}[OK]${RESET}  $1"; }
-err() { log "${RED}[Error]${RESET} $1"; }
-
-title() {
-    log "${MAGENTA}${BOLD}╔══════════════════════════════════════╗"
-    log "║ $1"
-    log "╚══════════════════════════════════════╝${RESET}"
+print_title() {
+    printf "${MAGENTA}${BOLD}" >&2
+    printf "╔══════════════════════════════════════════════╗\n" >&2
+    printf "║ %-42s ║\n" "$1" >&2
+    printf "╚══════════════════════════════════════════════╝\n" >&2
+    printf "${RESET}" >&2
 }
 
 # ================================
-# 路径
+# 基础变量
 # ================================
-BASE="/root/catmi/xray"
-CONF="$BASE/conf"
-mkdir -p "$CONF"
+PROTO="hysteria"
+BASE_DIR="/root/catmi/xray"
+CONF_DIR="$BASE_DIR/conf"
+mkdir -p "$CONF_DIR"
+
+# Hysteria2 专用证书目录
+CERT_DIR="$BASE_DIR/Hysteria2"
+mkdir -p "$CERT_DIR"
 
 # ================================
-# UUID（无依赖）
+# 输入清理
 # ================================
-uuid() {
-    cat /proc/sys/kernel/random/uuid
+clean_input() {
+    echo "$1" | tr -d '\000-\037'
 }
 
 # ================================
-# 域名策略
+# 安全输入（不会污染 JSON）
 # ================================
-domain() {
-    ((RANDOM%2)) && echo "cloudflare.com" || echo "bing.com"
+safe_read() {
+    local prompt="$1"
+    local default="$2"
+    local input
+
+    printf "%s (默认: %s): " "$prompt" "$default" >&2
+    read input
+    input=$(clean_input "$input")
+    echo "${input:-$default}"
 }
 
-# ================================
-# 端口检测
-# ================================
-port_used() {
-    ss -tuln 2>/dev/null | grep -q ":$1 "
-}
+safe_read_port() {
+    local default="$1"
+    local input
 
-ask_port() {
-    local d="$1" p
     while true; do
-        read -r -p "端口 (默认 $d): " p >&2
-        p=${p:-$d}
-        [[ $p =~ ^[0-9]+$ ]] || { err "必须数字"; continue; }
-        ((p>=1 && p<=65535)) || { err "范围错误"; continue; }
-        port_used "$p" && { err "占用"; continue; }
-        echo "$p"; return
+        printf "请输入监听端口 (默认: %s): " "$default" >&2
+        read input
+        input=$(clean_input "$input")
+        port="${input:-$default}"
+
+        [[ "$port" =~ ^[0-9]+$ ]] || { print_error "端口必须是数字"; continue; }
+        (( port >= 1 && port <= 65535 )) || { print_error "端口范围错误"; continue; }
+        ss -tuln | awk '{print $5}' | grep -E -q "(:|])$port$" && { print_error "端口已占用"; continue; }
+
+        echo "$port"
+        return
     done
 }
 
 # ================================
-# IP 检测（无污染）
+# 随机生成工具
 # ================================
-listen_ip() {
-    local has4=false has6=false
-
-    ip -4 addr show scope global | grep -q inet && has4=true
-    ip -6 addr show scope global | grep -q inet6 && has6=true
-
-    {
-        info "检测到："
-        $has4 && echo "  IPv4"
-        $has6 && echo "  IPv6"
-        echo "1 IPv4"
-        echo "2 IPv6"
-        echo "3 自动"
-    } >&2
-
-    read -r -p "选择(默认1): " c >&2
-    c=${c:-1}
-
-    case $c in
-        2) echo "::" ;;
-        3)
-            $has4 && ! $has6 && echo "0.0.0.0" || \
-            ! $has4 && $has6 && echo "::" || \
-            echo "0.0.0.0"
-        ;;
-        *) echo "0.0.0.0" ;;
-    esac
+random_domain() {
+    sub=$(tr -dc 'a-z0-9' </dev/urandom | head -c 6)
+    num=$((RANDOM % 90 + 10))
+    echo "cdn-${sub}-${num}.com"
 }
 
 # ================================
-# 证书
+# 自动修复 uuidgen 缺失
 # ================================
-gen_cert() {
-    local d="$1"
-    CRT="$BASE/$d.crt"
-    KEY="$BASE/$d.key"
+ensure_uuidgen() {
+    if ! command -v uuidgen >/dev/null 2>&1; then
+        print_info "uuidgen 未安装，正在自动安装..."
+        apt update -y >/dev/null 2>&1
+        apt install uuid-runtime -y >/dev/null 2>&1
+        print_ok "uuidgen 安装完成"
+    fi
+}
 
-    [[ -f $CRT && -f $KEY ]] && return
+# ================================
+# IP 检测
+# ================================
+detect_listen_ip() {
+    local has_ipv4=false
+    local has_ipv6=false
 
-    info "生成证书: $d"
+    ip -4 addr show scope global | grep -q inet && has_ipv4=true
+    ip -6 addr show scope global | grep -q inet6 && has_ipv6=true
+
+    if $has_ipv4 && ! $has_ipv6; then
+        print_info "仅检测到 IPv4"
+        echo "0.0.0.0"; return
+    fi
+
+    if ! $has_ipv4 && $has_ipv6; then
+        print_info "仅检测到 IPv6"
+        echo "::"; return
+    fi
+
+    if $has_ipv4 && $has_ipv6; then
+        print_info "检测到双栈"
+        echo "1) IPv4 (0.0.0.0)" >&2
+        echo "2) IPv6 (::)" >&2
+        printf "选择 (默认1): " >&2
+        read choice
+        [[ "$choice" == "2" ]] && echo "::" || echo "0.0.0.0"
+        return
+    fi
+
+    print_error "未检测到公网 IP，默认 IPv4"
+    echo "0.0.0.0"
+}
+# ================================
+# 证书目录（修复：放在 Hysteria2 文件夹）
+# ================================
+CERT_DIR="$BASE_DIR/Hysteria2"
+mkdir -p "$CERT_DIR"
+
+# ================================
+# 自动修复 uuidgen 缺失问题
+# ================================
+ensure_uuidgen() {
+    if ! command -v uuidgen >/dev/null 2>&1; then
+        print_info "uuidgen 未安装，正在自动安装..."
+        apt update -y >/dev/null 2>&1
+        apt install uuid-runtime -y >/dev/null 2>&1
+        print_ok "uuidgen 安装完成"
+    fi
+}
+
+# ================================
+# 生成自签证书（放入 Hysteria2 目录）
+# ================================
+generate_self_signed_cert() {
+    local domain="$1"
+
+    CERT_FILE="$CERT_DIR/cert-$domain.crt"
+    KEY_FILE="$CERT_DIR/key-$domain.key"
+
+    [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]] && return
+
+    print_info "生成自签证书: $domain"
+
     openssl req -x509 -newkey rsa:2048 -nodes \
-        -keyout "$KEY" -out "$CRT" \
-        -days 365 -subj "/CN=$d" >/dev/null 2>&1
+        -keyout "$KEY_FILE" \
+        -out "$CERT_FILE" \
+        -days 365 \
+        -subj "/CN=$domain" >/dev/null 2>&1
 
-    ok "证书OK"
+    print_ok "证书生成成功"
 }
 
+# ================================
+# 获取下一个编号（01、02、03…）
+# ================================
+get_next_index() {
+    ls "$CONF_DIR"/$PROTO-*.json 2>/dev/null | \
+    sed -E 's/.*-([0-9]+)\.json/\1/' | sort -n | tail -1
+}
 
 # ================================
-# 新增
+# 新增配置（核心修复版）
 # ================================
-add() {
-    title "新增"
+add_config() {
+    print_title "新增 Hysteria2 配置"
 
-    local ip default_ip port uid d file lip
+    ensure_uuidgen
 
     default_ip=$(curl -4 -s ip.sb || hostname -I | awk '{print $1}')
-    read -r -p "服务器IP($default_ip): " ip >&2
-    ip=${ip:-$default_ip}
+    server_ip=$(safe_read "服务器 IP" "$default_ip")
 
-    lip=$(listen_ip)
+    listen_ip=$(detect_listen_ip)
 
-    port=$(ask_port $((RANDOM%20000+20000)))
-    uid=$(uuid)
-    d=$(domain)
+    default_port=$((RANDOM % 20000 + 20000))
+    while port_in_use "$default_port"; do
+        default_port=$((RANDOM % 20000 + 20000))
+    done
 
-    gen_cert "$d"
+    hysteria_port=$(safe_read_port "$default_port")
+    uuid=$(uuidgen | tr 'A-Z' 'a-z')
+    domain=$(random_domain)
 
-    file="$CONF/hy2-$(date +%s).json"
+    generate_self_signed_cert "$domain"
 
-cat > "$file" <<EOF
+    next=$(get_next_index)
+    next=$((next + 1))
+    index=$(printf "%02d" $next)
+
+    file="$CONF_DIR/$PROTO-$index.json"
+
+cat <<EOF > "$file"
 {
-  "inbounds":[
+  "inbounds": [
     {
-      "listen":"$lip",
-      "port":$port,
-      "protocol":"hysteria",
-      "settings":{
-        "version":2,
-        "clients":[{"auth":"$uid"}]
+      "listen": "$listen_ip",
+      "port": $hysteria_port,
+      "protocol": "hysteria",
+      "settings": {
+        "version": 2,
+        "clients": [
+          {
+            "auth": "$uuid"
+          }
+        ]
       },
-      "streamSettings":{
-        "network":"hysteria",
-        "security":"tls",
-        "tlsSettings":{
-          "alpn":["h3"],
-          "certificates":[
+      "streamSettings": {
+        "network": "hysteria",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": ["h3"],
+          "certificates": [
             {
-              "certificateFile":"$BASE/$d.crt",
-              "keyFile":"$BASE/$d.key",
-              "domain":"$d"
+              "certificateFile": "$CERT_FILE",
+              "keyFile": "$KEY_FILE",
+              "domain": "$domain"
             }
           ]
         }
@@ -163,73 +246,81 @@ cat > "$file" <<EOF
 }
 EOF
 
-    jq empty "$file" || { err "JSON错误"; rm -f "$file"; return; }
+    link="hysteria2://$uuid@$server_ip:$hysteria_port?sni=$domain&insecure=1#hysteria-$index"
 
-    link="hysteria2://$uid@$ip:$port?sni=$d&insecure=1#hy2"
-
-    ok "完成"
-    echo -e "\n$link\n"
-
-    
+    print_ok "配置生成成功"
+    echo -e "编号: $index\n端口: $hysteria_port\nUUID: $uuid\n域名: $domain\n监听: $listen_ip\n配置文件: $file" >&2
+    echo -e "\n客户端链接:\n$link" >&2
 }
-
 # ================================
-# 列表
+# 显示配置（修复 UUID 显示）
 # ================================
-list() {
-    title "列表"
-    for f in "$CONF"/*.json; do
-        [[ -f $f ]] || continue
-        jq empty "$f" 2>/dev/null || continue
+list_configs() {
+    print_title "Hysteria2 配置列表"
 
-        p=$(jq -r '.inbounds[0].port' "$f")
-        u=$(jq -r '.inbounds[0].settings.clients[0].auth' "$f")
-        d=$(jq -r '.inbounds[0].streamSettings.tlsSettings.certificates[0].domain' "$f")
+    for f in "$CONF_DIR"/$PROTO-*.json; do
+        [[ -f "$f" ]] || continue
 
-        echo "$p | $u | $d"
+        num=$(basename "$f" .json | cut -d'-' -f2)
+        port=$(jq -r '.inbounds[0].port' "$f")
+        uuid=$(jq -r '.inbounds[0].settings.clients[0].auth' "$f")
+        domain=$(jq -r '.inbounds[0].streamSettings.tlsSettings.certificates[0].domain' "$f")
+
+        printf "${GREEN}%s${RESET}) 端口:${BLUE}%s${RESET}  UUID:${MAGENTA}%s${RESET}  域名:${YELLOW}%s${RESET}\n" \
+        "$num" "$port" "$uuid" "$domain" >&2
     done
 }
 
 # ================================
-# 删除
+# 删除配置（自动删除证书）
 # ================================
-del() {
-    list
-    read -r -p "输入端口删除: " p >&2
+delete_config() {
+    list_configs
+    printf "输入要删除的编号: " >&2
+    read num
+    num=$(clean_input "$num")
 
-    for f in "$CONF"/*.json; do
-        jq -e ".inbounds[0].port==$p" "$f" >/dev/null 2>&1 || continue
+    file="$CONF_DIR/$PROTO-$(printf "%02d" $num).json"
 
-        d=$(jq -r '.inbounds[0].streamSettings.tlsSettings.certificates[0].domain' "$f")
-        rm -f "$f" "$BASE/$d.crt" "$BASE/$d.key"
+    if [[ -f "$file" ]]; then
+        domain=$(jq -r '.inbounds[0].streamSettings.tlsSettings.certificates[0].domain' "$file")
 
-        ok "已删"
-        
-        return
-    done
+        rm -f "$file"
+        rm -f "$CERT_DIR/cert-$domain.crt" "$CERT_DIR/key-$domain.key"
 
-    err "没找到"
+        print_ok "已删除配置 $num（含证书）"
+    else
+        print_error "编号不存在"
+    fi
 }
 
 # ================================
-# 菜单
+# 主菜单
 # ================================
-while true; do
-    title "Hysteria2"
+main_menu() {
+    while true; do
+        print_title "Hysteria2 管理面板"
 
-    echo "1 新增"
-    echo "2 查看"
-    echo "3 删除"
-    echo "0 退出"
+        echo "1) 查看配置" >&2
+        echo "2) 新增配置" >&2
+        echo "3) 删除配置" >&2
+        echo "0) 退出" >&2
 
-    read -r -p "选择: " c
+        printf "请选择: " >&2
+        read c
+        c=$(clean_input "$c")
 
-    case $c in
-        1) add ;;
-        2) list ;;
-        3) del ;;
-        0) exit ;;
-    esac
+        case $c in
+            1) list_configs ;;
+            2) add_config ;;
+            3) delete_config ;;
+            0) exit 0 ;;
+            *) print_error "无效选项" ;;
+        esac
 
-    read -r -p "回车继续..."
-done
+        printf "按回车继续..." >&2
+        read
+    done
+}
+
+main_menu
