@@ -49,7 +49,7 @@ mkdir -p "$CONF_DIR"
 list_configs() {
     print_title "当前 $PROTO 配置列表"
 
-    echo -e "${CYAN}编号 | 目标地址 | 协议 | 本地端口${RESET}"
+    echo -e "${CYAN}编号 | 本地端口 → 目标地址 | 协议${RESET}"
     echo "-------------------------------------"
 
     for f in "$CONF_DIR"/$PROTO-*.json; do
@@ -62,7 +62,7 @@ list_configs() {
         net=$(jq -r '.inbounds[0].settings.network' "$f")
         lport=$(jq -r '.inbounds[0].port' "$f")
 
-        echo -e "${GREEN}$num${RESET}) ${YELLOW}$ip${RESET}:${CYAN}$port${RESET} (${MAGENTA}$net${RESET}) → 本地端口 ${BLUE}$lport${RESET}"
+        echo -e "${GREEN}$num${RESET}) 本地端口 ${BLUE}$lport${RESET} → ${YELLOW}$ip${RESET}:${CYAN}$port${RESET} (${MAGENTA}$net${RESET})"
     done
 
     echo "-------------------------------------"
