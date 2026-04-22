@@ -37,7 +37,7 @@ ask_with_default() {
 # ================================
 list_configs() {
     echo "====== 当前 $PROTO 配置列表 ======"
-    echo "编号 | 用户名 | 本地端口"
+    echo "编号 | 用户名 | 密码 | 本地端口"
     echo "-------------------------------------"
 
     for f in "$CONF_DIR"/$PROTO-*.json; do
@@ -47,12 +47,14 @@ list_configs() {
 
         lport=$(jq -r '.inbounds[0].port' "$f")
         user=$(jq -r '.inbounds[0].settings.accounts[0].user' "$f")
+        pass=$(jq -r '.inbounds[0].settings.accounts[0].pass' "$f")
 
-        echo "$num) 用户: $user → 本地端口 $lport"
+        echo "$num) 用户: $user | 密码: $pass | 本地端口: $lport"
     done
 
     echo "-------------------------------------"
 }
+
 
 # ================================
 # 新增 SOCKS 配置
