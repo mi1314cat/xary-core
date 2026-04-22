@@ -66,9 +66,20 @@ safe_read() {
 # 随机生成工具
 # ================================
 random_domain() {
-    sub=$(tr -dc 'a-z0-9' </dev/urandom | head -c 6)
-    num=$((RANDOM % 90 + 10))
-    echo "cdn-${sub}-${num}.com"
+    
+   domains=(
+    "cloudflare.com"
+    "bing.com"
+    "addons.mozilla.org"
+    )
+
+
+    total_domains=${#domains[@]}
+    random_index=$((RANDOM % total_domains))
+    
+    # 输出选择的域名
+    echo "${domains[random_index]}"
+
 }
 random_port() { shuf -i 10000-60000 -n 1; }
 port_in_use() {
