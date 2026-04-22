@@ -173,7 +173,27 @@ EOF
 fi
 }
 
+cat_out_files() {
+    local dir="$1"
 
+    [[ -d "$dir" ]] || {
+        echo "[Info] 目录不存在: $dir"
+        return 0
+    }
+
+    local files
+    files=$(find "$dir" -type f \( -name "*.txt" -o -name "*.yaml" \))
+
+    [[ -z "$files" ]] && {
+        echo "[Info] 没有找到 txt/yaml 文件"
+        return 0
+    }
+
+    echo "[Info] 输出文件内容："
+    echo "----------------------"
+
+    cat $files
+}
 
 
 
@@ -191,11 +211,7 @@ fi
 print_info "xrayls 服务已启动并正在运行"
 }
 
-outconf(){
-cat "$INSTALL_DIR/v2ray.txt"
-cat "$INSTALL_DIR/clash-meta.yaml"
 
-}
 # ================= 主流程 =================
 main(){
     xray_install
@@ -204,7 +220,7 @@ main(){
     webcn
     webxz
     start_xray
-    outconf
+    cat_out_files "$INSTALL_DIR/out"
     print_info "完成"
 }
 
