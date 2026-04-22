@@ -178,7 +178,7 @@ cat <<EOF > "$ngconfout_DIR/Nxhttp.txt"
 {
   "downloadSettings": {
     "address": "${PUBLIC_IP}",
-    "port": ${PORT},
+    "port": ${NRPORT},
     "network": "xhttp",
     "xhttpSettings": {
       "path": "${WS_PATH2}",
@@ -199,12 +199,12 @@ cat <<EOF > "$ngconfout_DIR/Nxhttp.txt"
 
 {
   "downloadSettings": {
-    "address": "${DOMAIN_LOWER}", 
+    "address": "${NDOMAIN_LOWER}", 
     "port": 443, 
     "network": "xhttp", 
     "security": "tls", 
     "tlsSettings": {
-      "serverName": "${DOMAIN_LOWER}", 
+      "serverName": "${NDOMAIN_LOWER}", 
       "allowInsecure": false
     }, 
     "xhttpSettings": {
@@ -218,9 +218,9 @@ EOF
 # 生成分享链接（将 pbk 指向 publickey）
 share_link="
 vless://${UUID}@${link_ip}:${NRPORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${dest_server}&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=${short_id}&type=tcp&headerType=none#Reality
-vless://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&allowInsecure=1&type=ws&host=${DOMAIN_LOWER}&path=${WS_PATH1}#vless-ws-tls
-vmess://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&allowInsecure=1&type=ws&host=${DOMAIN_LOWER}&path=${WS_PATH}#vmess-ws-tls
-vless://${UUID}@${DOMAIN_LOWER}:443?encryption=none&security=tls&sni=${DOMAIN_LOWER}&type=xhttp&host=${DOMAIN_LOWER}&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
+vless://${UUID}@${NDOMAIN_LOWER}:443?encryption=none&security=tls&sni=${NDOMAIN_LOWER}&allowInsecure=1&type=ws&host=${NDOMAIN_LOWER}&path=${WS_PATH1}#vless-ws-tls
+vmess://${UUID}@${NDOMAIN_LOWER}:443?encryption=none&security=tls&sni=${NDOMAIN_LOWER}&allowInsecure=1&type=ws&host=${NDOMAIN_LOWER}&path=${WS_PATH}#vmess-ws-tls
+vless://${UUID}@${NDOMAIN_LOWER}:443?encryption=none&security=tls&sni=${NDOMAIN_LOWER}&type=xhttp&host=${NDOMAIN_LOWER}&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
 "
 echo "${share_link}" > "$ngconfout_DIR/Nv2ray.txt"
 
@@ -246,7 +246,7 @@ cat << EOF > "$ngconfout_DIR/Nclash-meta.yaml"
     client-fingerprint: chrome
   - name: vmess-ws-tls
     type: vmess
-    server: ${DOMAIN_LOWER}
+    server: ${NDOMAIN_LOWER}
     port: 443
     cipher: auto
     uuid: ${UUID}
@@ -256,11 +256,11 @@ cat << EOF > "$ngconfout_DIR/Nclash-meta.yaml"
     ws-opts:
       path: ${WS_PATH}
       headers:
-        Host: ${DOMAIN_LOWER}
-    servername: ${DOMAIN_LOWER}
+        Host: ${NDOMAIN_LOWER}
+    servername: ${NDOMAIN_LOWER}
   - name: vless-ws-tls
     type: vless
-    server: ${DOMAIN_LOWER}
+    server: ${NDOMAIN_LOWER}
     port: 443
     uuid: ${UUID}
     tls: true
@@ -270,9 +270,9 @@ cat << EOF > "$ngconfout_DIR/Nclash-meta.yaml"
     cipher: auto
     ws-opts:
       headers:
-        Host: ${DOMAIN_LOWER}
+        Host: ${NDOMAIN_LOWER}
       path: ${WS_PATH1}
-    servername: ${DOMAIN_LOWER}
+    servername: ${NDOMAIN_LOWER}
   
   
 
