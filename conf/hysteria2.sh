@@ -86,31 +86,35 @@ detect_listen_ip() {
     local has_ipv4=false
     local has_ipv6=false
 
-    ip -4 addr show scope global | grep -q inet && has_ipv4=true
-    ip -6 addr show scope global | grep -q inet6 && has_ipv6=true
+    ip -4 addr show scope global | grep -q "inet " && has_ipv4=true
+    ip -6 addr show scope global | grep -q "inet6 [2-9a-fA-F]" && has_ipv6=true
 
-    if $has_ipv4 && ! $has_ipv6; then
-        print_info "仅 IPv4，使用 0.0.0.0"
-        echo "0.0.0.0"; return
-    fi
+    print_info "自动检测结果："
+    $has_ipv4 && echo "  - 检测到 IPv4"
+    $has_ipv6 && echo "  - 检测到 IPv6"
+    (! $has_ipv4 && ! $has_ipv6) && echo "  - 未检测到公网 IP"
 
-    if ! $has_ipv4 && $has_ipv6; then
-        print_info "仅 IPv6，使用 ::"
-        echo "::"; return
-    fi
+    echo
+    echo "请选择监听地址："
+    echo "1) IPv4 (0.0.0.0)"
+    echo "2) IPv6 (::)"
+    echo "3) 自动推荐"
 
-    if $has_ipv4 && $has_ipv6; then
-        print_info "检测到双栈"
-        echo "1) IPv4 (0.0.0.0)"
-        echo "2) IPv6 (::)"
-        read -p "选择 (默认1): " choice
-        [[ "$choice" == "2" ]] && echo "::" || echo "0.0.0.0"
-        return
-    fi
+    printf "选择 (默认 1): "
+    read choice
 
-    print_error "未检测到IP，默认0.0.0.0"
-    echo "0.0.0.0"
+    case "$choice" in
+        2) echo "::" ;;
+        3)
+            if $has_ipv4 && ! $has_ipv6; then echo "0.0.0.0"
+            elif ! $has_ipv4 && $has_ipv6; then echo "::"
+            else echo "0.0.0.0"
+            fi
+            ;;
+        *) echo "0.0.0.0" ;;
+    esac
 }
+
 
 generate_self_signed_cert() {
     local domain="$1"
