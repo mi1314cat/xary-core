@@ -27,7 +27,82 @@ print_ok() {
 print_error() {
     echo -e "${RED}[Error]${RESET} $1"
 }
+detect_listen_ip() {
+    local has_ipv4=false
+    local has_ipv6=false
 
+    # 检测真实 IPv4（排除 127.0.0.1）
+    if ip -4 addr show scope global | grep -q "inet "; then
+        has_ipv4=true
+    fi
+
+    # 检测真实 IPv6（排除 fe80::）
+    if ip -6 addr show scope global | grep -q "inet6 [2-9a-fA-F]"; then
+        has_ipv6=true
+    fi
+
+    print_info "自动检测结果："
+    $has_ipv4 && echo "  - 检测到 IPv4"
+    $has_ipv6 && echo "  - 检测到 IPv6"
+    (! $has_ipv4 && ! $has_ipv6) && echo "  - 未检测到公网 IP（可能是 NAT 或容器环境）"
+
+    echo
+    echo "请选择监听地址："
+    echo "1) IPv4 (0.0.0.0)"
+    echo "2) IPv6 (::)"
+    echo "3) 全部自动（根据检测结果推荐）"
+
+    printf "选择 (默认 1): "
+    read choice
+
+    case "$choice" in
+        2)
+            echo "::"
+            ;;
+        3)
+            if $has_ipv4 && ! $has_ipv6; then
+                echo "0.0.0.0"
+            elif ! $has_ipv4 && $has_ipv6; then
+                echo "::"
+            elif $has_ipv4 && $has_ipv6; then
+                echo "0.0.0.0"
+            else
+                echo "0.0.0.0"
+            fi
+            ;;
+        *)
+            echo "0.0.0.0"
+            ;;
+    esac
+}
+
+ask_port_with_default() {
+    local default="$1"
+    local input
+
+    while true; do
+        read -p "$(echo -e ${YELLOW}请输入本地监听端口${RESET}) (回车默认: $default): " input
+        port="${input:-$default}"
+
+        if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+            print_error "端口必须是数字"
+            continue
+        fi
+
+        if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+            print_error "端口必须在 1-65535 范围内"
+            continue
+        fi
+
+        if port_in_use "$port"; then
+            print_error "端口 $port 已被占用，请重新输入"
+            continue
+        fi
+
+        echo "$port"
+        return
+    done
+}
 print_title() {
     echo -e "${MAGENTA}${BOLD}"
     echo "╔══════════════════════════════════════╗"
@@ -74,9 +149,10 @@ list_configs() {
 add_config() {
     print_title "新增 $PROTO 配置"
 
-    read -p "$(echo -e ${YELLOW}请输入本地监听端口${RESET}): " lport
+    lport=$(ask_port_with_default "$default_port")
     read -p "$(echo -e ${YELLOW}请输入目标 IP${RESET}): " ip
     read -p "$(echo -e ${YELLOW}请输入目标端口${RESET}): " tport
+    listen_ip=$(detect_listen_ip)
 
     echo -e "${CYAN}请选择协议类型:${RESET}"
     echo -e "${CYAN}1)${RESET} tcp"
@@ -101,7 +177,7 @@ add_config() {
 {
   "inbounds": [
     {
-      "listen": "::",
+      "listen": "$listen_ip",
       "port": $lport,
       "protocol": "$PROTO",
       "settings": {
