@@ -61,24 +61,6 @@ safe_read() {
     echo "${input:-$default}"
 }
 
-safe_read_port() {
-    local default="$1"
-    local input
-
-    while true; do
-        printf "请输入监听端口 (默认: %s): " "$default" >&2
-        read input
-        input=$(clean_input "$input")
-        port="${input:-$default}"
-
-        [[ "$port" =~ ^[0-9]+$ ]] || { print_error "端口必须是数字"; continue; }
-        (( port >= 1 && port <= 65535 )) || { print_error "端口范围错误"; continue; }
-        ss -tuln | awk '{print $5}' | grep -E -q "(:|])$port$" && { print_error "端口已占用"; continue; }
-
-        echo "$port"
-        return
-    done
-}
 
 # ================================
 # 随机生成工具
@@ -88,7 +70,20 @@ random_domain() {
     num=$((RANDOM % 90 + 10))
     echo "cdn-${sub}-${num}.com"
 }
+random_port() { shuf -i 10000-60000 -n 1; }
+port_in_use() {
+    ss -tuln | awk '{print $5}' | grep -E -q "(:|])$1$"
+}
 
+random_free_port() {
+    while true; do
+        port=$(random_port)
+        if ! port_in_use "$port"; then
+            echo "$port"
+            return
+        fi
+    done
+}
 # ================================
 # 自动修复 uuidgen 缺失
 # ================================
@@ -120,28 +115,34 @@ detect_listen_ip() {
 
 
 
-ask_port_with_default() {
+clean_input() {
+    echo "$1" | tr -d '\000-\037'
+}
+
+safe_read() {
+    local prompt="$1"
+    local default="$2"
+    local input
+
+    printf "%s (默认: %s): " "$prompt" "$default" >&2
+    read input
+    input=$(clean_input "$input")
+    echo "${input:-$default}"
+}
+
+safe_read_port() {
     local default="$1"
     local input
 
     while true; do
-        read -p "$(echo -e ${YELLOW}请输入本地监听端口${RESET}) (回车默认: $default): " input
+        printf "请输入本地监听端口 (默认: %s): " "$default" >&2
+        read input
+        input=$(clean_input "$input")
         port="${input:-$default}"
 
-        if ! [[ "$port" =~ ^[0-9]+$ ]]; then
-            print_error "端口必须是数字"
-            continue
-        fi
-
-        if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-            print_error "端口必须在 1-65535 范围内"
-            continue
-        fi
-
-        if port_in_use "$port"; then
-            print_error "端口 $port 已被占用，请重新输入"
-            continue
-        fi
+        [[ "$port" =~ ^[0-9]+$ ]] || { print_error "端口必须是数字"; continue; }
+        (( port >= 1 && port <= 65535 )) || { print_error "端口范围错误"; continue; }
+        port_in_use "$port" && { print_error "端口已占用"; continue; }
 
         echo "$port"
         return
@@ -244,9 +245,9 @@ add_config() {
 
     detect=$(detect_listen_ip)
     listen_ip=$(choose_listen_ip "$detect")
-
-   
-    hysteria_port=$(ask_port_with_default "$default_port")
+    default_port=$(random_free_port)
+  
+    hysteria_port=$(safe_read_port "$default_port")
     uuid=$(uuidgen | tr 'A-Z' 'a-z')
     domain=$(random_domain)
 
