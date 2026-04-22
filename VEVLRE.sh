@@ -94,8 +94,8 @@ if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
     NPORT=${NPORT:-443}
     update_env $xrayconf NPORT "$NPORT"
     
-    RNPORT=$(generate_port "Reality (外部 TCP)")
-    update_env $xrayconf RNPORT "$RNPORT"
+    NRPORT=$(generate_port "Reality (外部 TCP)")
+    update_env $xrayconf NRPORT "$NRPORT"
     read -p "请输入申请证书的域名: " DOMAIN_LOWER   
     update_env $xrayconf NDOMAIN_LOWER "$NDOMAIN_LOWER"
     update_env $CATMIENV_FILE DOMAIN_LOWER "$DOMAIN_LOWER"
@@ -104,7 +104,7 @@ elif [ "$WEB_CHOICE" = "2" ]; then
 
     read -p "请输入监听端口 (默认 443): " CRPORT
     CRPORT=${CRPORT:-443}
-    update_env $xrayconf RNPORT "$RNPORT"
+    update_env $xrayconf CRPORT "$CRPORT"
     read -p "请输入未cdn域名 " RDOMAIN_LOWE
     read -p "请输入申请证书的域名: " CDOMAIN_LOWER    
     update_env $xrayconf CDOMAIN_LOWER "$CDOMAIN_LOWER"
