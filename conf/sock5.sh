@@ -14,18 +14,18 @@ BOLD="\e[1m"
 RESET="\e[0m"
 
 # ================================
-# 打印函数
+# 打印函数（全部输出到 stderr，避免污染变量）
 # ================================
-print_info() { echo -e "${CYAN}[Info]${RESET} $1"; }
-print_ok()   { echo -e "${GREEN}[OK]${RESET}  $1"; }
-print_error(){ echo -e "${RED}[Error]${RESET} $1"; }
+print_info()  { echo -e "${CYAN}[Info]${RESET} $1" >&2; }
+print_ok()    { echo -e "${GREEN}[OK]${RESET}  $1" >&2; }
+print_error() { echo -e "${RED}[Error]${RESET} $1" >&2; }
 
 print_title() {
-    echo -e "${MAGENTA}${BOLD}"
-    echo "╔══════════════════════════════════════╗"
-    printf "║ %-36s ║\n" "$1"
-    echo "╚══════════════════════════════════════╝"
-    echo -e "${RESET}"
+    echo -e "${MAGENTA}${BOLD}" >&2
+    echo "╔══════════════════════════════════════════════╗" >&2
+    printf "║ %-42s ║\n" "$1" >&2
+    echo "╚══════════════════════════════════════════════╝" >&2
+    echo -e "${RESET}" >&2
 }
 
 # ================================
@@ -71,7 +71,7 @@ safe_read() {
     local default="$2"
     local input
 
-    printf "%s (默认: %s): " "$prompt" "$default"
+    printf "%s (默认: %s): " "$prompt" "$default" >&2
     read input
     input=$(clean_input "$input")
     echo "${input:-$default}"
@@ -82,7 +82,7 @@ safe_read_port() {
     local input
 
     while true; do
-        printf "请输入本地监听端口 (默认: %s): " "$default"
+        printf "请输入本地监听端口 (默认: %s): " "$default" >&2
         read input
         input=$(clean_input "$input")
         port="${input:-$default}"
@@ -97,7 +97,7 @@ safe_read_port() {
 }
 
 # ================================
-# IPv4 / IPv6 自动检测（只检测，不交互）
+# IPv4 / IPv6 自动检测
 # ================================
 detect_listen_ip() {
     local has_ipv4=false
@@ -114,24 +114,24 @@ detect_listen_ip() {
 }
 
 # ================================
-# 监听地址选择（交互）
+# 监听地址选择
 # ================================
 choose_listen_ip() {
     local detect="$1"
 
     print_info "自动检测结果："
-    [[ "$detect" == "ipv4" ]] && echo "  - 检测到 IPv4"
-    [[ "$detect" == "ipv6" ]] && echo "  - 检测到 IPv6"
-    [[ "$detect" == "dual" ]] && echo "  - 检测到 IPv4 + IPv6"
-    [[ "$detect" == "none" ]] && echo "  - 未检测到公网 IP"
+    [[ "$detect" == "ipv4" ]] && echo "  - 检测到 IPv4" >&2
+    [[ "$detect" == "ipv6" ]] && echo "  - 检测到 IPv6" >&2
+    [[ "$detect" == "dual" ]] && echo "  - 检测到 IPv4 + IPv6" >&2
+    [[ "$detect" == "none" ]] && echo "  - 未检测到公网 IP" >&2
 
-    echo
-    echo "请选择监听地址："
-    echo "1) IPv4 (0.0.0.0)"
-    echo "2) IPv6 (::)"
-    echo "3) 自动推荐"
+    echo >&2
+    echo "请选择监听地址：" >&2
+    echo "1) IPv4 (0.0.0.0)" >&2
+    echo "2) IPv6 (::)" >&2
+    echo "3) 自动推荐" >&2
 
-    printf "选择 (默认 1): "
+    printf "选择 (默认 1): " >&2
     read choice
     choice=$(clean_input "$choice")
 
@@ -154,8 +154,9 @@ choose_listen_ip() {
 # ================================
 list_configs() {
     print_title "当前 SOCKS 配置列表"
-    echo -e "${CYAN}编号 | 用户名 | 密码 | 本地端口 | Tag${RESET}"
-    echo "-----------------------------------------------"
+
+    echo -e "${CYAN}编号 | 用户名 | 密码 | 本地端口 | Tag${RESET}" >&2
+    echo "--------------------------------------------------------" >&2
 
     for f in "$CONF_DIR"/$PROTO-*.json; do
         [[ -f "$f" ]] || continue
@@ -166,10 +167,10 @@ list_configs() {
         pass=$(jq -r '.inbounds[0].settings.accounts[0].pass' "$f")
         tag=$(jq -r '.inbounds[0].tag' "$f")
 
-        echo -e "${GREEN}$num${RESET}) 用户: ${YELLOW}$user${RESET} | 密码: ${MAGENTA}$pass${RESET} | 端口: ${CYAN}$lport${RESET} | Tag: ${BLUE}$tag${RESET}"
+        echo -e "${GREEN}$num${RESET}) 用户: ${YELLOW}$user${RESET} | 密码: ${MAGENTA}$pass${RESET} | 端口: ${CYAN}$lport${RESET} | Tag: ${BLUE}$tag${RESET}" >&2
     done
 
-    echo "-----------------------------------------------"
+    echo "--------------------------------------------------------" >&2
 }
 
 # ================================
@@ -218,12 +219,7 @@ cat <<EOF > "$file"
 EOF
 
     print_ok "新增 SOCKS 配置成功"
-    echo "编号: $next"
-    echo "监听地址: $listen_ip"
-    echo "端口: $lport"
-    echo "用户名: $SOCKS_USERNAME"
-    echo "密码: $SOCKS_PASSWORD"
-    echo "Tag: $tag_name"
+    echo -e "编号: $next\n监听地址: $listen_ip\n端口: $lport\n用户名: $SOCKS_USERNAME\n密码: $SOCKS_PASSWORD\nTag: $tag_name" >&2
 }
 
 # ================================
@@ -232,7 +228,7 @@ EOF
 delete_config() {
     list_configs
 
-    printf "请输入要删除的编号: "
+    printf "请输入要删除的编号: " >&2
     read num
     num=$(clean_input "$num")
 
@@ -253,12 +249,12 @@ config_menu() {
     while true; do
         print_title "SOCKS 配置管理"
 
-        echo "1) 查看所有配置"
-        echo "2) 新增配置"
-        echo "3) 删除配置"
-        echo "0) 退出脚本"
+        echo "1) 查看所有配置" >&2
+        echo "2) 新增配置" >&2
+        echo "3) 删除配置" >&2
+        echo "0) 退出脚本" >&2
 
-        printf "请选择: "
+        printf "请选择: " >&2
         read c
         c=$(clean_input "$c")
 
@@ -270,7 +266,7 @@ config_menu() {
             *) print_error "无效选项" ;;
         esac
 
-        printf "按回车继续..."
+        printf "按回车继续..." >&2
         read
     done
 }
