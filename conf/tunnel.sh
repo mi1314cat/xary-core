@@ -34,32 +34,61 @@ detect_listen_ip() {
     ip -4 addr show scope global | grep -q "inet " && has_ipv4=true
     ip -6 addr show scope global | grep -q "inet6 [2-9a-fA-F]" && has_ipv6=true
 
+    if $has_ipv4 && ! $has_ipv6; then echo "ipv4"
+    elif ! $has_ipv4 && $has_ipv6; then echo "ipv6"
+    elif $has_ipv4 && $has_ipv6; then echo "dual"
+    else echo "none"
+    fi
+}
+
+choose_listen_ip() {
+    local detect="$1"
+
     print_info "自动检测结果："
-    $has_ipv4 && echo "  - 检测到 IPv4"
-    $has_ipv6 && echo "  - 检测到 IPv6"
-    (! $has_ipv4 && ! $has_ipv6) && echo "  - 未检测到公网 IP"
+    [[ "$detect" == "ipv4" ]] && echo "  - 检测到 IPv4" >&2
+    [[ "$detect" == "ipv6" ]] && echo "  - 检测到 IPv6" >&2
+    [[ "$detect" == "dual" ]] && echo "  - 检测到 IPv4 + IPv6" >&2
+    [[ "$detect" == "none" ]] && echo "  - 未检测到公网 IP" >&2
 
-    echo
-    echo "请选择监听地址："
-    echo "1) IPv4 (0.0.0.0)"
-    echo "2) IPv6 (::)"
-    echo "3) 自动推荐"
+    echo >&2
+    echo "请选择监听地址：" >&2
+    echo "1) IPv4 (0.0.0.0)" >&2
+    echo "2) IPv6 (::)" >&2
+    echo "3) 自动推荐" >&2
 
-    printf "选择 (默认 1): "
+    printf "选择 (默认 1): " >&2
     read choice
+    choice=$(clean_input "$choice")
 
     case "$choice" in
         2) echo "::" ;;
         3)
-            if $has_ipv4 && ! $has_ipv6; then echo "0.0.0.0"
-            elif ! $has_ipv4 && $has_ipv6; then echo "::"
-            else echo "0.0.0.0"
-            fi
+            case "$detect" in
+                ipv4) echo "0.0.0.0" ;;
+                ipv6) echo "::" ;;
+                dual) echo "0.0.0.0" ;;
+                none) echo "0.0.0.0" ;;
+            esac
             ;;
         *) echo "0.0.0.0" ;;
     esac
 }
 
+
+random_port() { shuf -i 10000-60000 -n 1; }
+port_in_use() {
+    ss -tuln | awk '{print $5}' | grep -E -q "(:|])$1$"
+}
+
+random_free_port() {
+    while true; do
+        port=$(random_port)
+        if ! port_in_use "$port"; then
+            echo "$port"
+            return
+        fi
+    done
+}
 
 ask_port_with_default() {
     local default="$1"
@@ -133,11 +162,14 @@ list_configs() {
 # ================================
 add_config() {
     print_title "新增 $PROTO 配置"
-
+   default_port=$(random_free_port)
+    detect=$(detect_listen_ip)
+    listen_ip=$(choose_listen_ip "$detect")
+    
     lport=$(ask_port_with_default "$default_port")
     read -p "$(echo -e ${YELLOW}请输入目标 IP${RESET}): " ip
     read -p "$(echo -e ${YELLOW}请输入目标端口${RESET}): " tport
-    listen_ip=$(detect_listen_ip)
+    
 
     echo -e "${CYAN}请选择协议类型:${RESET}"
     echo -e "${CYAN}1)${RESET} tcp"
