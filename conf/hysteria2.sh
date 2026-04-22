@@ -287,7 +287,9 @@ cat <<EOF > "$file"
             }
           ]
         }
-      }
+      },
+      "tag": "$PROTO-$index"
+    
     }
   ]
 }
