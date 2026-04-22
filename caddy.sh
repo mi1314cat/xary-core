@@ -234,74 +234,16 @@ else
     exit 1
 fi
 }
+source <(curl -fsSL "https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/A/update_env.sh")
+source <(curl -fsSL "https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/A/load_env.sh")
 DINSTALL_CATMI="/root/catmi"
 CATMIENV_FILE="$DINSTALL_CATMI/catmi.env"
-load_env() {
-    local env_file="${1:-$CATMIENV_FILE}"
+load_env $CATMIENV_FILE
 
-    # 1. 检查文件是否存在
-    if [ ! -f "$env_file" ]; then
-        echo "错误：env 文件不存在 -> $env_file"
-        return 1
-    fi
+NINSTALL_DIR="/root/catmi/$mode"
+NINSTALL_ENV="$NINSTALL_DIR/install_info.env"
+load_env $NINSTALL_ENV
 
-    # 2. 逐行读取
-    while IFS= read -r line || [ -n "$line" ]; do
-        # 去除 Windows 换行符 (CRLF)
-        line="${line%$'\r'}"
 
-        # 3. 跳过空行、空白行、注释行
-        [[ -z "${line//[[:space:]]/}" || "$line" =~ ^[[:space:]]*# ]] && continue
-
-        # 4. 必须包含 =
-        if [[ "$line" != *=* ]]; then
-            echo "警告：跳过无效行（缺少 '='）：$line"
-            continue
-        fi
-
-        # 5. 拆分 key=value（只分第一个 =）
-        key="${line%%=*}"
-        value="${line#*=}"
-
-        # 6. trim 空格
-        key="${key#"${key%%[![:space:]]*}"}"
-        key="${key%"${key##*[![:space:]]}"}"
-        value="${value#"${value%%[![:space:]]*}"}"
-        value="${value%"${value##*[![:space:]]}"}"
-
-        # 7. 校验 key
-        if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-            echo "错误：非法的变量名 -> $key"
-            return 1
-        fi
-
-        # 8. 必须是 "value" 格式
-        if [[ ! "$value" =~ ^\".*\"$ ]]; then
-            echo "错误：变量 $key 的值必须包含在双引号内 -> $value"
-            return 1
-        fi
-
-        # 去掉外层引号
-        value="${value:1:-1}"
-
-        # 9. 反转义（顺序非常重要）
-        value="${value//\\\\/\\}"   # \\ -> \
-        value="${value//\\\"/\"}"   # \" -> "
-        value="${value//\\\$/\$}"   # \$ -> $
-
-        # 10. 设置变量
-        printf -v "$key" '%s' "$value"
-        export "$key"
-
-    done < "$env_file"
-
-    echo "成功：已安全加载环境配置文件 $env_file"
-}
-
-load_env
-WINSTALL_DIR="/root/catmi/$mode"
-WINSTALL_ENV="$WINSTALL_DIR/install_info.env"
-
-load_env $WINSTALL_ENV
 ssl
 caddy_install
