@@ -113,6 +113,38 @@ ask_port_with_default() {
         return
     done
 }
+detect_listen_ip() {
+    local has_ipv4=false
+    local has_ipv6=false
+
+    ip -4 addr show scope global | grep -q inet && has_ipv4=true
+    ip -6 addr show scope global | grep -q inet6 && has_ipv6=true
+
+    if $has_ipv4 && ! $has_ipv6; then
+        print_info "检测到仅 IPv4，使用 0.0.0.0"
+        echo "0.0.0.0"
+        return
+    fi
+
+    if ! $has_ipv4 && $has_ipv6; then
+        print_info "检测到仅 IPv6，使用 ::"
+        echo "::"
+        return
+    fi
+
+    if $has_ipv4 && $has_ipv6; then
+        print_info "检测到双栈网络"
+        echo "1) IPv4 (0.0.0.0)"
+        echo "2) IPv6 (::)"
+        printf "请选择监听地址 (默认 1): "
+        read choice
+        [[ "$choice" == "2" ]] && echo "::" || echo "0.0.0.0"
+        return
+    fi
+
+    print_error "未检测到有效 IP，默认使用 0.0.0.0"
+    echo "0.0.0.0"
+}
 
 # ================================
 # 显示所有 SOCKS 配置
@@ -144,25 +176,31 @@ list_configs() {
 add_config() {
     print_title "新增 SOCKS 配置"
 
+    # 自动检测监听地址（IPv4 / IPv6）
+    listen_ip=$(detect_listen_ip)
+
+    # 生成随机默认值（保证端口不冲突）
     default_port=$(random_free_port)
     default_user=$(random_user)
     default_pass=$(random_pass)
 
+    # 让用户选择或使用默认值（端口保证不冲突）
     lport=$(ask_port_with_default "$default_port")
     SOCKS_USERNAME=$(ask_with_default "请输入 SOCKS 用户名" "$default_user")
     SOCKS_PASSWORD=$(ask_with_default "请输入 SOCKS 密码" "$default_pass")
 
+    # 自动找下一个编号
     next=$(ls "$CONF_DIR"/$PROTO-*.json 2>/dev/null | wc -l)
     next=$((next + 1))
     tag_name="${PROTO}${next}"
 
     file="$CONF_DIR/$PROTO-$(printf "%02d" $next).json"
 
-    cat <<EOF > "$file"
+cat <<EOF > "$file"
 {
   "inbounds": [
     {
-      "listen": "::",
+      "listen": "$listen_ip",
       "port": $lport,
       "protocol": "socks",
       "settings": {
@@ -182,6 +220,7 @@ EOF
 
     print_ok "新增 SOCKS 配置成功"
     echo -e "${GREEN}编号:${RESET} $next"
+    echo -e "${GREEN}监听地址:${RESET} $listen_ip"
     echo -e "${GREEN}端口:${RESET} $lport"
     echo -e "${GREEN}用户名:${RESET} $SOCKS_USERNAME"
     echo -e "${GREEN}密码:${RESET} $SOCKS_PASSWORD"
