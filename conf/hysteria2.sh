@@ -13,16 +13,16 @@ WHITE="\e[97m"
 BOLD="\e[1m"
 RESET="\e[0m"
 
-print_info()  { echo -e "${CYAN}[Info]${RESET} $1"; }
-print_ok()    { echo -e "${GREEN}[OK]${RESET}  $1"; }
-print_error() { echo -e "${RED}[Error]${RESET} $1"; }
+print_info()  { printf "${CYAN}[Info]${RESET} %s\n" "$1"; }
+print_ok()    { printf "${GREEN}[OK]${RESET}  %s\n" "$1"; }
+print_error() { printf "${RED}[Error]${RESET} %s\n" "$1"; }
 
 print_title() {
-    echo -e "${MAGENTA}${BOLD}"
-    echo "╔══════════════════════════════════════╗"
+    printf "${MAGENTA}${BOLD}"
+    printf "╔══════════════════════════════════════╗\n"
     printf "║ %-36s ║\n" "$1"
-    echo "╚══════════════════════════════════════╝"
-    echo -e "${RESET}"
+    printf "╚══════════════════════════════════════╝\n"
+    printf "${RESET}"
 }
 
 # ================================
@@ -37,10 +37,18 @@ CERT_FILE=""
 KEY_FILE=""
 
 # ================================
+# 依赖检查
+# ================================
+command -v jq >/dev/null 2>&1 || {
+    print_error "未安装 jq，请先执行: apt install jq -y"
+    exit 1
+}
+
+# ================================
 # 工具函数
 # ================================
 random_uuid() {
-    tr -dc 'a-f0-9' </dev/urandom | head -c 32
+    uuidgen | tr 'A-Z' 'a-z'
 }
 
 random_domain() {
@@ -50,32 +58,58 @@ random_domain() {
 }
 
 port_in_use() {
-    ss -tuln | awk '{print $5}' | grep -E -q "(:|])$1$"
+    if command -v ss >/dev/null 2>&1; then
+        ss -tuln | awk '{print $5}' | grep -E -q "(:|])$1$"
+    else
+        netstat -tuln | awk '{print $4}' | grep -E -q "(:|])$1$"
+    fi
 }
 
 ask_port() {
     local default="$1"
     local input
     while true; do
-        echo -ne "${YELLOW}请输入 Hysteria2 监听端口${RESET} (默认: $default): "
+        printf "请输入 Hysteria2 监听端口 (默认: %s): " "$default"
         read input
         port="${input:-$default}"
 
         [[ "$port" =~ ^[0-9]+$ ]] || { print_error "端口必须是数字"; continue; }
-        (( port >= 1 && port <= 65535 )) || { print_error "端口必须在 1-65535"; continue; }
-        port_in_use "$port" && { print_error "端口已被占用"; continue; }
+        (( port >= 1 && port <= 65535 )) || { print_error "端口范围错误"; continue; }
+        port_in_use "$port" && { print_error "端口已占用"; continue; }
 
         echo "$port"
         return
     done
 }
 
-ask_with_default() {
-    local prompt="$1"
-    local default="$2"
-    echo -ne "${YELLOW}${prompt}${RESET} (默认: $default): "
-    read var
-    echo "${var:-$default}"
+detect_listen_ip() {
+    local has_ipv4=false
+    local has_ipv6=false
+
+    ip -4 addr show scope global | grep -q inet && has_ipv4=true
+    ip -6 addr show scope global | grep -q inet6 && has_ipv6=true
+
+    if $has_ipv4 && ! $has_ipv6; then
+        print_info "仅 IPv4，使用 0.0.0.0"
+        echo "0.0.0.0"; return
+    fi
+
+    if ! $has_ipv4 && $has_ipv6; then
+        print_info "仅 IPv6，使用 ::"
+        echo "::"; return
+    fi
+
+    if $has_ipv4 && $has_ipv6; then
+        print_info "检测到双栈"
+        echo "1) IPv4 (0.0.0.0)"
+        echo "2) IPv6 (::)"
+        read -p "选择 (默认1): " choice
+        [[ "$choice" == "2" ]] && echo "::" || echo "0.0.0.0"
+        return
+    fi
+
+    print_error "未检测到IP，默认0.0.0.0"
+    echo "0.0.0.0"
 }
 
 generate_self_signed_cert() {
@@ -84,12 +118,9 @@ generate_self_signed_cert() {
     CERT_FILE="$BASE_DIR/cert-$domain.crt"
     KEY_FILE="$BASE_DIR/key-$domain.key"
 
-    if [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
-        print_info "检测到已有证书，将继续使用"
-        return
-    fi
+    [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]] && return
 
-    print_info "正在为域名 $domain 生成独立自签证书..."
+    print_info "生成证书: $domain"
 
     openssl req -x509 -newkey rsa:2048 -nodes \
         -keyout "$KEY_FILE" \
@@ -97,16 +128,19 @@ generate_self_signed_cert() {
         -days 365 \
         -subj "/CN=$domain" >/dev/null 2>&1
 
-    [[ -f "$CERT_FILE" ]] && print_ok "证书生成成功" || print_error "证书生成失败"
+    [[ -f "$CERT_FILE" ]] && print_ok "证书生成成功"
+}
+
+get_next_index() {
+    ls "$CONF_DIR"/$PROTO-*.json 2>/dev/null | \
+    sed -E 's/.*-([0-9]+)\.json/\1/' | sort -n | tail -1
 }
 
 # ================================
-# 显示所有配置
+# 显示配置
 # ================================
 list_configs() {
-    print_title "当前 Hysteria2 配置列表"
-    echo -e "${CYAN}编号 | 端口 | UUID | 伪装域名${RESET}"
-    echo "-----------------------------------------------------"
+    print_title "配置列表"
 
     for f in "$CONF_DIR"/$PROTO-*.json; do
         [[ -f "$f" ]] || continue
@@ -114,49 +148,45 @@ list_configs() {
 
         port=$(jq -r '.inbounds[0].port' "$f")
         uuid=$(jq -r '.inbounds[0].settings.clients[0].auth' "$f")
-        domain=$(jq -r '.inbounds[0].streamSettings.tlsSettings.certificates[0].domain // empty' "$f")
-        [[ -z "$domain" ]] && domain="(未记录)"
+        domain=$(jq -r '.inbounds[0].streamSettings.tlsSettings.certificates[0].domain' "$f")
 
-        echo -e "${GREEN}$num${RESET}) 端口: ${BLUE}$port${RESET} | UUID: ${MAGENTA}$uuid${RESET} | 域名: ${YELLOW}$domain${RESET}"
+        printf "${GREEN}%s${RESET}) 端口:${BLUE}%s${RESET} UUID:${MAGENTA}%s${RESET} 域名:${YELLOW}%s${RESET}\n" \
+        "$num" "$port" "$uuid" "$domain"
     done
-
-    echo "-----------------------------------------------------"
 }
 
 # ================================
 # 新增配置
 # ================================
 add_config() {
-    print_title "新增 Hysteria2 配置"
+    print_title "新增配置"
 
-    default_ip=$(curl -s ipv4.ip.sb || curl -s ifconfig.me || echo "0.0.0.0")
-    echo -ne "${YELLOW}请输入服务器 IP${RESET} (默认: $default_ip): "
-    read server_ip
+    default_ip=$(curl -4 -s ip.sb || hostname -I | awk '{print $1}')
+    read -p "服务器IP (默认:$default_ip): " server_ip
     server_ip="${server_ip:-$default_ip}"
+
+    listen_ip=$(detect_listen_ip)
 
     default_port=$((RANDOM % 20000 + 20000))
     while port_in_use "$default_port"; do
         default_port=$((RANDOM % 20000 + 20000))
     done
-    hysteria_port=$(ask_port "$default_port")
 
+    hysteria_port=$(ask_port "$default_port")
     uuid=$(random_uuid)
     domain=$(random_domain)
 
     generate_self_signed_cert "$domain"
 
-    next=$(ls "$CONF_DIR"/$PROTO-*.json 2>/dev/null | wc -l)
+    next=$(get_next_index)
     next=$((next + 1))
-    tag_name="${PROTO}${next}"
-
     file="$CONF_DIR/$PROTO-$(printf "%02d" $next).json"
 
 cat <<EOF > "$file"
 {
   "inbounds": [
     {
-      "tag": "$tag_name",
-      "listen": "::",
+      "listen": "$listen_ip",
       "port": $hysteria_port,
       "protocol": "hysteria",
       "settings": {
@@ -169,41 +199,32 @@ cat <<EOF > "$file"
       },
       "streamSettings": {
         "network": "hysteria",
-        "hysteriaSettings": {
-          "version": 2
-        },
         "security": "tls",
         "tlsSettings": {
           "alpn": ["h3"],
           "certificates": [
             {
-              "certificateFile": "cert-$domain.crt",
-              "keyFile": "key-$domain.key",
+              "certificateFile": "$CERT_FILE",
+              "keyFile": "$KEY_FILE",
               "domain": "$domain"
             }
           ]
-        },
-        "finalmask": {}
+        }
       }
     }
   ]
 }
 EOF
 
-    client_link="hysteria2://$uuid@$server_ip:$hysteria_port?sni=$domain&insecure=1#Hysteria2"
+    link="hysteria2://$uuid@$server_ip:$hysteria_port?sni=$domain&insecure=1#hy2"
 
-    print_ok "Hysteria2 配置已生成"
-    echo -e "${GREEN}编号:${RESET} $next"
-    echo -e "${GREEN}Tag:${RESET} $tag_name"
-    echo -e "${GREEN}端口:${RESET} $hysteria_port"
-    echo -e "${GREEN}UUID:${RESET} $uuid"
-    echo -e "${GREEN}伪装域名:${RESET} $domain"
-    echo -e "${GREEN}证书:${RESET} $CERT_FILE"
-    echo -e "${GREEN}私钥:${RESET} $KEY_FILE"
-    echo -e "${GREEN}配置文件:${RESET} $file"
-    echo
-    echo -e "${CYAN}客户端链接:${RESET}"
-    echo "$client_link"
+    print_ok "配置生成成功"
+    echo "端口: $hysteria_port"
+    echo "UUID: $uuid"
+    echo "域名: $domain"
+    echo "监听: $listen_ip"
+    echo "配置: $file"
+    echo -e "\n客户端:\n$link"
 }
 
 # ================================
@@ -211,15 +232,17 @@ EOF
 # ================================
 delete_config() {
     list_configs
-    echo -ne "${RED}请输入要删除的编号${RESET}: "
-    read num
+    read -p "输入编号: " num
+
     file="$CONF_DIR/$PROTO-$(printf "%02d" $num).json"
 
     if [[ -f "$file" ]]; then
+        domain=$(jq -r '.inbounds[0].streamSettings.tlsSettings.certificates[0].domain' "$file")
         rm -f "$file"
-        print_ok "已删除编号 $num 的 Hysteria2 配置"
+        rm -f "$BASE_DIR/cert-$domain.crt" "$BASE_DIR/key-$domain.key"
+        print_ok "已删除"
     else
-        print_error "编号不存在"
+        print_error "不存在"
     fi
 }
 
@@ -228,26 +251,24 @@ delete_config() {
 # ================================
 main_menu() {
     while true; do
-        print_title "Hysteria2 配置管理"
+        print_title "Hysteria2 管理"
 
-        echo -e "${CYAN}1)${RESET} 查看所有配置"
-        echo -e "${CYAN}2)${RESET} 新增配置"
-        echo -e "${CYAN}3)${RESET} 删除配置"
-        echo -e "${CYAN}0)${RESET} 退出脚本"
+        echo "1) 查看"
+        echo "2) 新增"
+        echo "3) 删除"
+        echo "0) 退出"
 
-        echo -ne "${YELLOW}请选择${RESET}: "
-        read c
+        read -p "选择: " c
 
         case $c in
             1) list_configs ;;
             2) add_config ;;
             3) delete_config ;;
-            0) exit 0 ;;
-            *) print_error "无效选项" ;;
+            0) exit ;;
+            *) print_error "无效" ;;
         esac
 
-        echo -ne "按回车继续..."
-        read
+        read -p "回车继续..."
     done
 }
 
