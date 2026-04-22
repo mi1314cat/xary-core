@@ -71,6 +71,7 @@ add_config() {
     # 自动找下一个编号
     next=$(ls "$CONF_DIR"/$PROTO-*.json 2>/dev/null | wc -l)
     next=$((next + 1))
+    tag_name="${PROTO}${next}"
 
     file="$CONF_DIR/$PROTO-$(printf "%02d" $next).json"
 
@@ -89,7 +90,8 @@ add_config() {
             "pass": "$SOCKS_PASSWORD"
           }
         ]
-      }
+      },
+      "tag": "$tag_name"
     }
   ]
 }
@@ -100,7 +102,9 @@ EOF
     echo "本地端口: $lport"
     echo "用户名: $SOCKS_USERNAME"
     echo "密码: $SOCKS_PASSWORD"
+    echo "Tag: $tag_name"
 }
+
 
 # ================================
 # 删除 SOCKS 配置
