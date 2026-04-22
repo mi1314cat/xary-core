@@ -108,32 +108,52 @@ detect_listen_ip() {
     local has_ipv4=false
     local has_ipv6=false
 
-    ip -4 addr show scope global | grep -q inet && has_ipv4=true
-    ip -6 addr show scope global | grep -q inet6 && has_ipv6=true
+    ip -4 addr show scope global | grep -q "inet " && has_ipv4=true
+    ip -6 addr show scope global | grep -q "inet6 [2-9a-fA-F]" && has_ipv6=true
 
-    if $has_ipv4 && ! $has_ipv6; then
-        print_info "仅检测到 IPv4"
-        echo "0.0.0.0"; return
+    if $has_ipv4 && ! $has_ipv6; then echo "ipv4"
+    elif ! $has_ipv4 && $has_ipv6; then echo "ipv6"
+    elif $has_ipv4 && $has_ipv6; then echo "dual"
+    else echo "none"
     fi
-
-    if ! $has_ipv4 && $has_ipv6; then
-        print_info "仅检测到 IPv6"
-        echo "::"; return
-    fi
-
-    if $has_ipv4 && $has_ipv6; then
-        print_info "检测到双栈"
-        echo "1) IPv4 (0.0.0.0)" >&2
-        echo "2) IPv6 (::)" >&2
-        printf "选择 (默认1): " >&2
-        read choice
-        [[ "$choice" == "2" ]] && echo "::" || echo "0.0.0.0"
-        return
-    fi
-
-    print_error "未检测到公网 IP，默认 IPv4"
-    echo "0.0.0.0"
 }
+
+# ================================
+# 监听地址选择
+# ================================
+choose_listen_ip() {
+    local detect="$1"
+
+    print_info "自动检测结果："
+    [[ "$detect" == "ipv4" ]] && echo "  - 检测到 IPv4" >&2
+    [[ "$detect" == "ipv6" ]] && echo "  - 检测到 IPv6" >&2
+    [[ "$detect" == "dual" ]] && echo "  - 检测到 IPv4 + IPv6" >&2
+    [[ "$detect" == "none" ]] && echo "  - 未检测到公网 IP" >&2
+
+    echo >&2
+    echo "请选择监听地址：" >&2
+    echo "1) IPv4 (0.0.0.0)" >&2
+    echo "2) IPv6 (::)" >&2
+    echo "3) 自动推荐" >&2
+
+    printf "选择 (默认 1): " >&2
+    read choice
+    choice=$(clean_input "$choice")
+
+    case "$choice" in
+        2) echo "::" ;;
+        3)
+            case "$detect" in
+                ipv4) echo "0.0.0.0" ;;
+                ipv6) echo "::" ;;
+                dual) echo "0.0.0.0" ;;
+                none) echo "0.0.0.0" ;;
+            esac
+            ;;
+        *) echo "0.0.0.0" ;;
+    esac
+}
+
 # ================================
 # 证书目录（修复：放在 Hysteria2 文件夹）
 # ================================
@@ -193,7 +213,8 @@ add_config() {
     default_ip=$(curl -4 -s ip.sb || hostname -I | awk '{print $1}')
     server_ip=$(safe_read "服务器 IP" "$default_ip")
 
-    listen_ip=$(detect_listen_ip)
+    detect=$(detect_listen_ip)
+    listen_ip=$(choose_listen_ip "$detect")
 
     default_port=$((RANDOM % 20000 + 20000))
     while port_in_use "$default_port"; do
