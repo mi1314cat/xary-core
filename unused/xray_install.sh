@@ -23,7 +23,7 @@ print_error() {
 
 xray_install() {
 INSTALL_DIR="/root/catmi/xray"
-mkdir -p "$INSTALL_DIR"/{conf,log}
+mkdir -p "$INSTALL_DIR"/{conf,log,out}
 # 安装 xray（保留你原来的安装方式）
 print_info "安装最新 Xray..."
 if ! bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; then
