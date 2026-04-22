@@ -101,7 +101,7 @@ add_config() {
 {
   "inbounds": [
     {
-      "listen": "127.0.0.1",
+      "listen": "::",
       "port": $lport,
       "protocol": "$PROTO",
       "settings": {
