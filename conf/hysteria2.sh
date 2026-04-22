@@ -118,6 +118,35 @@ detect_listen_ip() {
     fi
 }
 
+
+
+ask_port_with_default() {
+    local default="$1"
+    local input
+
+    while true; do
+        read -p "$(echo -e ${YELLOW}请输入本地监听端口${RESET}) (回车默认: $default): " input
+        port="${input:-$default}"
+
+        if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+            print_error "端口必须是数字"
+            continue
+        fi
+
+        if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+            print_error "端口必须在 1-65535 范围内"
+            continue
+        fi
+
+        if port_in_use "$port"; then
+            print_error "端口 $port 已被占用，请重新输入"
+            continue
+        fi
+
+        echo "$port"
+        return
+    done
+}
 # ================================
 # 监听地址选择
 # ================================
@@ -216,12 +245,8 @@ add_config() {
     detect=$(detect_listen_ip)
     listen_ip=$(choose_listen_ip "$detect")
 
-    default_port=$((RANDOM % 20000 + 20000))
-    while port_in_use "$default_port"; do
-        default_port=$((RANDOM % 20000 + 20000))
-    done
-
-    hysteria_port=$(safe_read_port "$default_port")
+   
+    hysteria_port=$(ask_port_with_default "$default_port")
     uuid=$(uuidgen | tr 'A-Z' 'a-z')
     domain=$(random_domain)
 
