@@ -14,19 +14,22 @@ BOLD="\e[1m"
 RESET="\e[0m"
 
 # ================================
-# 打印函数
+# 打印函数（全部输出到 stderr）
 # ================================
-print_info() {
-    echo -e "${CYAN}[Info]${RESET} $1"
+print_info() { echo -e "${CYAN}[Info]${RESET} $1" >&2; }
+print_ok()   { echo -e "${GREEN}[OK]${RESET} $1" >&2; }
+print_error(){ echo -e "${RED}[Error]${RESET} $1" >&2; }
+
+# ================================
+# 输入清理（可选）
+# ================================
+clean_input() {
+    echo "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
-print_ok() {
-    echo -e "${GREEN}[OK]${RESET} $1"
-}
-
-print_error() {
-    echo -e "${RED}[Error]${RESET} $1"
-}
+# ================================
+# IP 检测
+# ================================
 detect_listen_ip() {
     local has_ipv4=false
     local has_ipv6=false
@@ -74,8 +77,11 @@ choose_listen_ip() {
     esac
 }
 
-
+# ================================
+# 端口处理
+# ================================
 random_port() { shuf -i 10000-60000 -n 1; }
+
 port_in_use() {
     ss -tuln | awk '{print $5}' | grep -E -q "(:|])$1$"
 }
@@ -117,12 +123,16 @@ ask_port_with_default() {
         return
     done
 }
+
+# ================================
+# UI 标题
+# ================================
 print_title() {
-    echo -e "${MAGENTA}${BOLD}"
-    echo "╔══════════════════════════════════════╗"
-    printf "║ %-36s ║\n" "$1"
-    echo "╚══════════════════════════════════════╝"
-    echo -e "${RESET}"
+    echo -e "${MAGENTA}${BOLD}" >&2
+    echo "╔══════════════════════════════════════╗" >&2
+    printf "║ %-36s ║\n" "$1" >&2
+    echo "╚══════════════════════════════════════╝" >&2
+    echo -e "${RESET}" >&2
 }
 
 # ================================
@@ -162,14 +172,14 @@ list_configs() {
 # ================================
 add_config() {
     print_title "新增 $PROTO 配置"
-   default_port=$(random_free_port)
+
+    default_port=$(random_free_port)
     detect=$(detect_listen_ip)
     listen_ip=$(choose_listen_ip "$detect")
-    
+
     lport=$(ask_port_with_default "$default_port")
     read -p "$(echo -e ${YELLOW}请输入目标 IP${RESET}): " ip
     read -p "$(echo -e ${YELLOW}请输入目标端口${RESET}): " tport
-    
 
     echo -e "${CYAN}请选择协议类型:${RESET}"
     echo -e "${CYAN}1)${RESET} tcp"
@@ -179,10 +189,7 @@ add_config() {
     case "$choice" in
         1) net="tcp" ;;
         2) net="udp" ;;
-        *)
-            print_error "无效选项，默认使用 tcp"
-            net="tcp"
-            ;;
+        *) net="tcp" ;;
     esac
 
     next=$(ls "$CONF_DIR"/$PROTO-*.json 2>/dev/null | wc -l)
