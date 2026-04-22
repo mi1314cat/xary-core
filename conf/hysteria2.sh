@@ -33,7 +33,6 @@ BASE_DIR="/root/catmi/xray"
 CONF_DIR="$BASE_DIR/conf"
 mkdir -p "$CONF_DIR"
 
-# 这两个在生成证书时动态赋值，方便后面显示
 CERT_FILE=""
 KEY_FILE=""
 
@@ -58,7 +57,7 @@ ask_port() {
     local default="$1"
     local input
     while true; do
-        echo -ne "${YELLOW}请输入 Hysteria2 监听端口${RESET} (回车默认: $default): "
+        echo -ne "${YELLOW}请输入 Hysteria2 监听端口${RESET} (默认: $default): "
         read input
         port="${input:-$default}"
 
@@ -74,7 +73,7 @@ ask_port() {
 ask_with_default() {
     local prompt="$1"
     local default="$2"
-    echo -ne "${YELLOW}${prompt}${RESET} (回车默认: $default): "
+    echo -ne "${YELLOW}${prompt}${RESET} (默认: $default): "
     read var
     echo "${var:-$default}"
 }
@@ -86,7 +85,7 @@ generate_self_signed_cert() {
     KEY_FILE="$BASE_DIR/key-$domain.key"
 
     if [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
-        print_info "检测到该域名已有证书，将继续使用：$CERT_FILE / $KEY_FILE"
+        print_info "检测到已有证书，将继续使用"
         return
     fi
 
@@ -98,13 +97,7 @@ generate_self_signed_cert() {
         -days 365 \
         -subj "/CN=$domain" >/dev/null 2>&1
 
-    if [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
-        print_ok "证书生成完成："
-        echo "  证书: $CERT_FILE"
-        echo "  私钥: $KEY_FILE"
-    else
-        print_error "证书生成失败，请检查 openssl 是否安装"
-    fi
+    [[ -f "$CERT_FILE" ]] && print_ok "证书生成成功" || print_error "证书生成失败"
 }
 
 # ================================
@@ -131,13 +124,13 @@ list_configs() {
 }
 
 # ================================
-# 新增 Hysteria2 配置
+# 新增配置
 # ================================
 add_config() {
     print_title "新增 Hysteria2 配置"
 
     default_ip=$(curl -s ipv4.ip.sb || curl -s ifconfig.me || echo "0.0.0.0")
-    echo -ne "${YELLOW}请输入服务器 IP${RESET} (回车默认: $default_ip): "
+    echo -ne "${YELLOW}请输入服务器 IP${RESET} (默认: $default_ip): "
     read server_ip
     server_ip="${server_ip:-$default_ip}"
 
