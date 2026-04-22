@@ -45,7 +45,7 @@ source <(curl -fsSL "https://github.com/mi1314cat/One-click-script/raw/refs/head
 DINSTALL_CATMI="/root/catmi"
 CATMIENV_FILE="$DINSTALL_CATMI/catmi.env"
 INSTALL_DIR="/root/catmi/xray"
-mkdir -p "$INSTALL_DIR"/{conf,log}
+mkdir -p "$INSTALL_DIR"/{conf,log,out}
 xrayconf="$INSTALL_DIR/install_info.env"
 
 generate_port() {
