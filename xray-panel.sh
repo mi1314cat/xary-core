@@ -37,7 +37,7 @@ ${GREEN}0.${PLAIN} 退出脚本
 xrayls 服务状态: ${xrayls_server_status_text}
 ----------------------"
 
-    read -p "请输入选项 [0-7]: " choice
+    read -p "请输入选项 [0-8]: " choice
 
     case "${choice}" in
         0) clear; exit 0 ;;
