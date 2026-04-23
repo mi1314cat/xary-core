@@ -306,7 +306,15 @@ cat <<EOF > "$file"
 }
 EOF
 
-    link="hysteria2://$uuid@$server_ip:$hysteria_port?sni=$domain&insecure=1#hysteria-$index"
+    # 生成链接
+link="hysteria2://$uuid@$server_ip:$hysteria_port?sni=$domain&insecure=1&alpn=h3#hysteria-$index"
+
+# 确保目录存在
+mkdir -p /root/catmi/xray/out
+
+# 追加写入文件
+echo "$link" >> /root/catmi/xray/out/hysteria.txt
+
 
     print_ok "配置生成成功"
     echo -e "编号: $index\n端口: $hysteria_port\nUUID: $uuid\n域名: $domain\n监听: $listen_ip\n配置文件: $file" >&2
