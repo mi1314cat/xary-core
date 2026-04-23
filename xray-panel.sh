@@ -128,8 +128,9 @@ ${GREEN}0.${PLAIN} 返回主菜单
             ;;
     esac
 
-    echo && read -p "按回车键返回主菜单..." && echo
+    return   # ← 关键点：不要再 read
 }
+
 
 XRevise() {
 bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/XRevise.sh)
