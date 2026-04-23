@@ -31,6 +31,7 @@ ${GREEN}4.${PLAIN} 重启 xray
 ${GREEN}5.${PLAIN} 查看客户端配置
 ${GREEN}6.${PLAIN} 修改配置
 ${GREEN}7.${PLAIN} 查询服务状态
+${GREEN}8.${PLAIN} 添加节点
 ${GREEN}0.${PLAIN} 退出脚本
 ----------------------
 xrayls 服务状态: ${xrayls_server_status_text}
@@ -47,6 +48,9 @@ xrayls 服务状态: ${xrayls_server_status_text}
         5) show_xray_configs ;;
         6) XRevise ;;  # 示例配置修改
         7) systemctl status xrayls.service -l ;;
+        8) add_node_menu ;;
+
+
         *) echo -e "${RED}无效的选项 ${choice}${PLAIN}" ;;
     esac
 
@@ -70,21 +74,58 @@ load_env() {
     fi
 }
 show_xray_configs() {
-    local files=(
-        "/root/catmi/xray/xhttp.json"
-        "/root/catmi/xray/v2ray.txt"
-        "/root/catmi/xray/clash-meta.yaml"
-    )
+    local out_dir="/root/catmi/xray/out"
 
-    for f in "${files[@]}"; do
-        if [[ -f "$f" ]]; then
-            echo "===== $f ====="
-            cat "$f"
-            echo
-        else
-            echo "文件不存在：$f"
-        fi
+    if [[ ! -d "$out_dir" ]]; then
+        echo -e "${RED}目录不存在：$out_dir${PLAIN}"
+        return
+    fi
+
+    echo -e "${GREEN}===== TXT 配置文件 =====${PLAIN}"
+    for f in "$out_dir"/*.txt; do
+        [[ -e "$f" ]] || { echo "无 TXT 文件"; break; }
+        echo -e "\n===== $f ====="
+        cat "$f"
     done
+
+    echo -e "\n${GREEN}===== YAML 配置文件 =====${PLAIN}"
+    for f in "$out_dir"/*.yaml "$out_dir"/*.yml; do
+        [[ -e "$f" ]] || { echo "无 YAML 文件"; break; }
+        echo -e "\n===== $f ====="
+        cat "$f"
+    done
+}
+
+add_node_menu() {
+    clear
+    echo -e "
+${GREEN}添加节点${PLAIN}
+----------------------
+${GREEN}1.${PLAIN} 添加 Tunnel 节点
+${GREEN}2.${PLAIN} 添加 Hysteria2 节点
+${GREEN}3.${PLAIN} 添加 SOCKS5 节点
+${GREEN}0.${PLAIN} 返回主菜单
+----------------------"
+
+    read -p "请输入选项 [0-3]: " nchoice
+
+    case "${nchoice}" in
+        0) return ;;
+        1)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/tunnel.sh)
+            ;;
+        2)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/hysteria2.sh)
+            ;;
+        3)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/sock5.sh)
+            ;;
+        *)
+            echo -e "${RED}无效的选项${PLAIN}"
+            ;;
+    esac
+
+    echo && read -p "按回车键返回主菜单..." && echo
 }
 
 XRevise() {
