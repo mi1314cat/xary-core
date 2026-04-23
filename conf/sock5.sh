@@ -252,22 +252,37 @@ config_menu() {
         echo "1) 查看所有配置" >&2
         echo "2) 新增配置" >&2
         echo "3) 删除配置" >&2
-        echo "0) 退出脚本" >&2
+        echo "0) 返回主菜单" >&2
 
         printf "请选择: " >&2
         read c
         c=$(clean_input "$c")
 
         case $c in
-            1) list_configs ;;
-            2) add_config ;;
-            3) delete_config ;;
-            0) exit 0 ;;
-            *) print_error "无效选项" ;;
+            1)
+                list_configs
+                printf "按回车继续..." >&2
+                read
+            ;;
+            2)
+                add_config
+                printf "按回车继续..." >&2
+                read
+            ;;
+            3)
+                delete_config
+                printf "按回车继续..." >&2
+                read
+            ;;
+            0)
+                return   # ← 返回主菜单，不暂停
+            ;;
+            *)
+                print_error "无效选项"
+                printf "按回车继续..." >&2
+                read
+            ;;
         esac
-
-        printf "按回车继续..." >&2
-        read
     done
 }
 
