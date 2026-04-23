@@ -170,7 +170,7 @@ curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /
 
 apt update
 apt install -y caddy
-wget -O index.html https://github.com/mi1314cat/One-click-script/releases/download/HTML/1.HTML
+wget -O index.html https://github.com/mi1314cat/One-click-script/releases/download/HTML/2.HTML
 mkdir -p /var/www/html
 mv index.html /var/www/html/
 chown -R caddy:caddy /var/www/html
