@@ -43,7 +43,7 @@ xrayls 服务状态: ${xrayls_server_status_text}
         0) clear; exit 0 ;;
         1) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/VEVLRE.sh) ;;
         2) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/uninstall_xray.sh) ;;
-        3) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/upxray.sh) ;;
+        3) upxray  ;;
         4) systemctl restart xrayls.service ;;
         5) show_xray_configs ;;
         6) XRevise ;;  # 示例配置修改
@@ -72,6 +72,18 @@ load_env() {
     else
         echo "env 文件不存在：$ENV_FILE"
     fi
+}
+upxray() {
+bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/unused/xray_install.sh)
+systemctl daemon-reload
+systemctl enable xrayls
+if ! systemctl restart xrayls; then
+    print_error "重启 xrayls 服务失败，请运行 'journalctl -u xrayls -b --no-pager' 获取详情"
+    systemctl status xrayls --no-pager || true
+    exit 1
+fi
+
+
 }
 show_xray_configs() {
     local out_dir="/root/catmi/xray/out"
