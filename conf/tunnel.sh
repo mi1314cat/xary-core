@@ -250,20 +250,33 @@ config_menu() {
         echo -e "${CYAN}1)${RESET} 查看所有配置"
         echo -e "${CYAN}2)${RESET} 新增配置"
         echo -e "${CYAN}3)${RESET} 删除配置"
-        echo -e "${CYAN}0)${RESET} 退出脚本"
+        echo -e "${CYAN}0)${RESET} 返回主菜单"
 
         read -p "$(echo -e ${YELLOW}请选择${RESET}): " c
 
         case $c in
-            1) list_configs ;;
-            2) add_config ;;
-            3) delete_config ;;
-            0) exit 0 ;;
-            *) print_error "无效选项" ;;
+            1)
+                list_configs
+                read -p "按回车继续..."
+            ;;
+            2)
+                add_config
+                read -p "按回车继续..."
+            ;;
+            3)
+                delete_config
+                read -p "按回车继续..."
+            ;;
+            0)
+                return   # ← 返回主菜单，不暂停
+            ;;
+            *)
+                print_error "无效选项"
+                read -p "按回车继续..."
+            ;;
         esac
-
-        read -p "按回车继续..."
     done
 }
+
 
 config_menu
