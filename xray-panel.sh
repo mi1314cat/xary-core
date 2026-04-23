@@ -113,12 +113,15 @@ ${GREEN}0.${PLAIN} 返回主菜单
         0) return ;;
         1)
             bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/tunnel.sh)
+            systemctl restart xrayls.service
             ;;
         2)
             bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/hysteria2.sh)
+            systemctl restart xrayls.service
             ;;
         3)
             bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/sock5.sh)
+            systemctl restart xrayls.service
             ;;
         *)
             echo -e "${RED}无效的选项${PLAIN}"
