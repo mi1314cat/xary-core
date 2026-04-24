@@ -204,9 +204,8 @@ cat_out_files() {
 
 # ================= 启动 =================
 start_xray() {
-# 重新加载 systemd 并启动服务
-systemctl daemon-reload
-systemctl enable xrayls
+
+
 if ! systemctl restart xrayls; then
     print_error "重启 xrayls 服务失败，请运行 'journalctl -u xrayls -b --no-pager' 获取详情"
     systemctl status xrayls --no-pager || true
