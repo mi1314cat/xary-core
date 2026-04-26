@@ -145,7 +145,7 @@ update_env WS_PATH2 "$WS_PATH2"
 update_env PRIVATE_KEY "$(tr -d '\n' < /usr/local/etc/xray/privatekey)"
 update_env PUBLIC_KEY "$(tr -d '\n' < /usr/local/etc/xray/publickey)"
 update_env PASSWORD "$(tr -d '\n' < /usr/local/etc/xray/password)"
-update_env SHORT_ID "$short_id"
+update_env short_id "$short_id"
 }
 getkey() {
     echo "[Info] 正在生成 Reality 密钥对，请耐心等待..."
