@@ -47,7 +47,7 @@ xrayls 服务状态: ${xrayls_server_status_text}
         4) systemctl restart xrayls.service ;;
         5) show_xray_configs ;;
         6) XRevise ;;  # 示例配置修改
-        7) systemctl status xrayls.service -l ;;
+        7) systemctl status xrayls --no-pager ;;
         8) add_node_menu ;;
 
 
