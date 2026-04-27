@@ -202,6 +202,58 @@ systemctl start argo-temp-health.timer
 }
 
 # ============================
+# 删除所有临时隧道文件（彻底清理）
+# ============================
+delete_all_temp() {
+    title "删除所有临时隧道文件（彻底清理）"
+
+    echo -e "${YELLOW}此操作将删除：${NC}"
+    echo "- /root/argo_temp/ 目录"
+    echo "- cloudflared 二进制文件"
+    echo "- 临时隧道日志、URL 文件"
+    echo "- health.sh 健康检查脚本"
+    echo "- systemd 定时器：argo-temp-health.timer"
+    echo "- systemd 服务：argo-temp-health.service"
+    echo
+    read -p "确认删除？输入 YES 执行: " CONFIRM
+
+    if [[ "$CONFIRM" != "YES" ]]; then
+        echo -e "${RED}已取消${NC}"
+        return
+    fi
+
+    echo -e "${YELLOW}停止 cloudflared 进程...${NC}"
+    pkill -f "cloudflared tunnel --url" 2>/dev/null || true
+
+    echo -e "${YELLOW}删除 systemd 定时器与服务...${NC}"
+    systemctl stop argo-temp-health.timer 2>/dev/null || true
+    systemctl disable argo-temp-health.timer 2>/dev/null || true
+    rm -f /etc/systemd/system/argo-temp-health.timer
+
+    systemctl stop argo-temp-health.service 2>/dev/null || true
+    rm -f /etc/systemd/system/argo-temp-health.service
+
+    systemctl daemon-reload
+
+    echo -e "${YELLOW}删除临时隧道目录...${NC}"
+    rm -rf /root/argo_temp
+
+    echo -e "${GREEN}临时隧道所有文件已彻底删除${NC}"
+}
+
+# ============================
+# 查看日志
+# ============================
+view_temp_log() {
+    title "临时隧道日志"
+    if [[ -f "$TEMP_LOG" ]]; then
+        tail -n 50 "$TEMP_LOG"
+    else
+        echo -e "${RED}没有日志文件${NC}"
+    fi
+}
+
+# ============================
 # 菜单
 # ============================
 menu() {
@@ -217,7 +269,11 @@ menu() {
         echo "3) 关闭临时隧道"
         echo "4) 删除临时隧道"
         echo "5) 手动诊断并自动修复"
+        echo "6) 查看临时隧道日志"
+        echo "7) 删除所有临时隧道文件（彻底清理）"
+
         echo "0) 退出"
+
         read -p "选择: " CH
 
         case $CH in
@@ -226,6 +282,9 @@ menu() {
             3) stop_temp ;;
             4) delete_temp ;;
             5) heal_temp_manual ;;
+            6) view_temp_log ;;
+            7) delete_all_temp ;;
+
             0) exit 0 ;;
         esac
     done
