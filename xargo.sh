@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 set -e
 
-WORKDIR="/root/argo"
+# ============================
+# 基础路径
+# ============================
+WORKDIR="/root/argo_temp"
 BIN="$WORKDIR/cloudflared"
 TEMP_LOG="$WORKDIR/temp.log"
 TEMP_SAVE="$WORKDIR/temp_url.txt"
 
 mkdir -p "$WORKDIR"
 
+# ============================
+# 颜色
+# ============================
 GREEN="\033[32m"
 RED="\033[31m"
 YELLOW="\033[33m"
@@ -23,18 +29,29 @@ title() {
     line
 }
 
-download_cloudflared() {
+# ============================
+# cloudflared 自动检测
+# ============================
+check_cloudflared() {
     if [[ ! -f "$BIN" ]]; then
-        title "正在下载 cloudflared..."
+        echo -e "${YELLOW}cloudflared 不存在，正在下载...${NC}"
+        wget -qO "$BIN" https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+        chmod +x "$BIN"
+    fi
+
+    if ! "$BIN" --version >/dev/null 2>&1; then
+        echo -e "${RED}cloudflared 文件损坏，重新下载...${NC}"
+        rm -f "$BIN"
         wget -qO "$BIN" https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
         chmod +x "$BIN"
     fi
 }
 
 # ============================
-# 临时隧道（后台运行）
+# 创建临时隧道
 # ============================
 create_temp_tunnel() {
+    check_cloudflared
     title "创建临时隧道"
 
     rm -f "$TEMP_LOG"
@@ -57,7 +74,7 @@ create_temp_tunnel() {
     done
 
     if [[ -z "$URL" ]]; then
-        echo -e "${RED}未能捕获到临时隧道 URL${NC}"
+        echo -e "${RED}未捕获到临时隧道 URL${NC}"
         tail -n 20 "$TEMP_LOG"
         return
     fi
@@ -66,6 +83,9 @@ create_temp_tunnel() {
     echo -e "临时隧道：${GREEN}$URL${NC}"
 }
 
+# ============================
+# 状态
+# ============================
 status_temp() {
     if pgrep -f "cloudflared tunnel --url" >/dev/null; then
         echo -e "${GREEN}运行中${NC}"
@@ -74,15 +94,25 @@ status_temp() {
     fi
 }
 
+# ============================
+# 重启
+# ============================
 restart_temp() {
     stop_temp
     create_temp_tunnel
 }
 
+# ============================
+# 停止
+# ============================
 stop_temp() {
-    pkill -f "cloudflared tunnel --url" 2>/dev/null && echo "临时隧道已关闭"
+    pkill -f "cloudflared tunnel --url" 2>/dev/null
+    echo "临时隧道已关闭"
 }
 
+# ============================
+# 删除
+# ============================
 delete_temp() {
     stop_temp
     rm -f "$TEMP_LOG" "$TEMP_SAVE"
@@ -90,32 +120,120 @@ delete_temp() {
 }
 
 # ============================
+# 手动诊断 + 自动修复
+# ============================
+heal_temp_manual() {
+    if [[ ! -f "$TEMP_SAVE" ]]; then
+        echo -e "${RED}没有记录中的临时隧道${NC}"
+        return
+    fi
+
+    URL=$(cat "$TEMP_SAVE")
+    echo -e "检测临时隧道：${GREEN}$URL${NC}"
+
+    HTTP_CODE=$(curl -o /dev/null -s -w "%{http_code}" --max-time 5 "$URL" || echo "000")
+
+    if [[ "$HTTP_CODE" =~ ^(200|301|302)$ ]]; then
+        echo -e "${GREEN}临时隧道健康（HTTP $HTTP_CODE）${NC}"
+        return
+    fi
+
+    echo -e "${RED}临时隧道异常（HTTP $HTTP_CODE），自动修复中...${NC}"
+
+    restart_temp
+}
+
+# ============================
+# systemd 自动健康检查
+# ============================
+generate_health_script() {
+cat > "$WORKDIR/health.sh" <<'EOF'
+#!/usr/bin/env bash
+TEMP_SAVE="/root/argo_temp/temp_url.txt"
+TEMP_LOG="/root/argo_temp/temp.log"
+BIN="/root/argo_temp/cloudflared"
+
+if [[ ! -f "$TEMP_SAVE" ]]; then
+    exit 0
+fi
+
+URL=$(cat "$TEMP_SAVE")
+HTTP_CODE=$(curl -o /dev/null -s -w "%{http_code}" --max-time 5 "$URL" || echo "000")
+
+if [[ "$HTTP_CODE" =~ ^(200|301|302)$ ]]; then
+    exit 0
+fi
+
+pkill -f "cloudflared tunnel --url" 2>/dev/null
+sleep 1
+
+nohup $BIN tunnel --url http://localhost:8080 --no-autoupdate \
+    > "$TEMP_LOG" 2>&1 &
+EOF
+
+chmod +x "$WORKDIR/health.sh"
+}
+
+install_health_timer() {
+cat > /etc/systemd/system/argo-temp-health.service <<EOF
+[Unit]
+Description=临时隧道自动健康检查
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash $WORKDIR/health.sh
+EOF
+
+cat > /etc/systemd/system/argo-temp-health.timer <<EOF
+[Unit]
+Description=每 5 分钟自动修复临时隧道
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=300
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable argo-temp-health.timer
+systemctl start argo-temp-health.timer
+}
+
+# ============================
 # 菜单
 # ============================
-menu_temp() {
+menu() {
     while true; do
-        title "临时隧道管理"
+        title "临时隧道管理（独立版）"
 
         echo -n "状态："; status_temp
         [[ -f "$TEMP_SAVE" ]] && echo "域名：$(cat $TEMP_SAVE)"
-
         echo
+
         echo "1) 创建临时隧道"
         echo "2) 重启临时隧道"
         echo "3) 关闭临时隧道"
         echo "4) 删除临时隧道"
+        echo "5) 手动诊断并自动修复"
         echo "0) 退出"
         read -p "选择: " CH
 
         case $CH in
-            1) download_cloudflared; create_temp_tunnel ;;
+            1) create_temp_tunnel ;;
             2) restart_temp ;;
             3) stop_temp ;;
             4) delete_temp ;;
+            5) heal_temp_manual ;;
             0) exit 0 ;;
-            *) echo "无效选项" ;;
         esac
     done
 }
 
-menu_temp
+# ============================
+# 启动入口
+# ============================
+generate_health_script
+install_health_timer
+menu
