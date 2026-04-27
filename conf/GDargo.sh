@@ -24,7 +24,7 @@ cat <<EOF > "$file"
     {
       "listen": "127.0.0.1",
       "port": 9970,
-      "tag": "VLESS-WS",
+      "tag": "vless-argo",
       "protocol": "vless",
       "settings": {
         "clients": [
