@@ -44,6 +44,8 @@ cat <<EOF > "$file"
   ]
 }
 EOF
+DINSTALL_CATMI="/root/catmi"
+CATMIENV_FILE="$DINSTALL_CATMI/catmi.env"
 source <(curl -fsSL "https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/A/update_env.sh")
 update_env $CATMIENV_FILE mode xray
 bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/argo/url_argo.sh)
@@ -51,8 +53,7 @@ bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/m
 
 source <(curl -fsSL "https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/A/load_env.sh")
 
-DINSTALL_CATMI="/root/catmi"
-CATMIENV_FILE="$DINSTALL_CATMI/catmi.env"
+
 
 load_env "$CATMIENV_FILE"  
 
