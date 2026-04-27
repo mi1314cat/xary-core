@@ -51,7 +51,7 @@ source <(curl -fsSL "https://github.com/mi1314cat/One-click-script/raw/refs/head
 
 
 source <(curl -fsSL "https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/A/load_env.sh")
-update_env $CATMIENV_FILE mode xray
+update_env "$CATMIENV_FILE" mode xray
 bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/argo/url_argo.sh)
 
 
