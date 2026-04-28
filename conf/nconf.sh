@@ -114,7 +114,7 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
             "flow": "xtls-rprx-vision"
           }
         ],
-        
+        "decryption": "none",
         "fallbacks": [
           {
             "dest": 9997
