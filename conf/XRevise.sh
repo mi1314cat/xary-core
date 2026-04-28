@@ -1,4 +1,6 @@
-# 打印带颜色的消息
+#!/usr/bin/env bash
+
+# 颜色输出
 GREEN="\033[32m"
 RED="\033[31m"
 YELLOW="\033[33m"
@@ -14,6 +16,7 @@ print_error() {
 
 INSTALL_DIR="/root/catmi/xray"
 ENV_FILE="$INSTALL_DIR/install_info.env"
+xrayls_DTR="$INSTALL_DIR/xrayls"
 
 update_env() {
     local key="$1"
@@ -21,7 +24,7 @@ update_env() {
 
     # 校验 key
     [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || {
-        echo "Invalid key: $key"
+        print_error "Invalid key: $key"
         return 1
     }
 
@@ -67,11 +70,11 @@ update_env() {
 
     ) 200>"$ENV_FILE.lock"
 }
-# 随机生成 WS 路径（更安全、更兼容）
+
+# 随机生成 WS 路径
 generate_ws_path() {
     echo "/$(tr -dc 'a-z0-9' </dev/urandom | head -c 10)"
 }
-
 
 # 随机生成 UUID
 generate_uuid() {
@@ -79,82 +82,77 @@ generate_uuid() {
 }
 
 usid() {
-# 生成短 id
-short_id=$(openssl rand -hex 4)
+    # 生成短 id
+    short_id=$(openssl rand -hex 4)
 
+    # 生成端口与路径
+    WS_PATH1=$(generate_ws_path)
+    WS_PATH=$(generate_ws_path)
+    WS_PATH2=$(generate_ws_path)
+    UUID=$(generate_uuid)
+    UUID2=$(generate_uuid)
 
+    print_info "UUID: $UUID"
+    print_info "UUID2: $UUID2"
+    print_info "WS_PATH1: $WS_PATH1"
+    print_info "WS_PATH: $WS_PATH"
+    print_info "WS_PATH2: $WS_PATH2"
+    print_info "short_id: $short_id"
 
-# 生成端口与路径
+    # 获取公网 IP 地址（容错）
+    PUBLIC_IP_V4=$(curl -s4 https://api.ipify.org || true)
+    PUBLIC_IP_V6=$(curl -s6 https://api64.ipify.org || true)
 
-WS_PATH1=$(generate_ws_path)
-WS_PATH=$(generate_ws_path)
-WS_PATH2=$(generate_ws_path)
-UUID=$(generate_uuid)
-UUID2=$(generate_uuid)
+    if [ -z "$PUBLIC_IP_V4" ] && [ -z "$PUBLIC_IP_V6" ]; then
+        print_error "无法检测公网 IP（IPv4/IPv6），请检查网络或手动填写"
+        exit 1
+    fi
 
-print_info "UUID: $UUID"
-print_info "UUID2: $UUID2"
-print_info "WS_PATH1: $WS_PATH1"
-print_info "WS_PATH: $WS_PATH"
-print_info "WS_PATH2: $WS_PATH2"
-print_info "short_id: $short_id"
+    echo "请选择要使用的公网 IP 地址:"
+    [ -n "$PUBLIC_IP_V4" ] && echo "1. IPv4: $PUBLIC_IP_V4"
+    [ -n "$PUBLIC_IP_V6" ] && echo "2. IPv6: $PUBLIC_IP_V6"
+    read -p "请输入对应的数字选择 [默认1，若不可用则选择可用项]: " IP_CHOICE
+    IP_CHOICE=${IP_CHOICE:-1}
 
-# 获取公网 IP 地址（容错）
-PUBLIC_IP_V4=$(curl -s4 https://api.ipify.org || true)
-PUBLIC_IP_V6=$(curl -s6 https://api64.ipify.org || true)
+    # 选择公网 IP 地址
+    if [ "$IP_CHOICE" -eq 2 ] && [ -n "$PUBLIC_IP_V6" ]; then
+        PUBLIC_IP="$PUBLIC_IP_V6"
+    else
+        PUBLIC_IP="${PUBLIC_IP_V4:-$PUBLIC_IP_V6}"
+    fi
 
-if [ -z "$PUBLIC_IP_V4" ] && [ -z "$PUBLIC_IP_V6" ]; then
-    print_error "无法检测公网 IP（IPv4/IPv6），请检查网络或手动填写"
-    exit 1
-fi
+    # IPv6 需要中括号，IPv4 不需要
+    if [[ "$PUBLIC_IP" =~ : ]]; then
+        link_ip="[$PUBLIC_IP]"
+    else
+        link_ip="$PUBLIC_IP"
+    fi
 
-echo "请选择要使用的公网 IP 地址:"
-[ -n "$PUBLIC_IP_V4" ] && echo "1. IPv4: $PUBLIC_IP_V4"
-[ -n "$PUBLIC_IP_V6" ] && echo "2. IPv6: $PUBLIC_IP_V6"
-read -p "请输入对应的数字选择 [默认1，若不可用则选择可用项]: " IP_CHOICE
-IP_CHOICE=${IP_CHOICE:-1}
+    update_env link_ip "$link_ip"
 
-# 选择公网 IP 地址
-if [ "$IP_CHOICE" -eq 2 ] && [ -n "$PUBLIC_IP_V6" ]; then
-    PUBLIC_IP="$PUBLIC_IP_V6"
-else
-    PUBLIC_IP="${PUBLIC_IP_V4:-$PUBLIC_IP_V6}"
-fi
+    print_info "选定公网 IP: $PUBLIC_IP"
 
-# IPv6 需要中括号，IPv4 不需要
-if [[ "$PUBLIC_IP" =~ : ]]; then
-    link_ip="[$PUBLIC_IP]"
-else
-    link_ip="$PUBLIC_IP"
-fi
-
-update_env link_ip "$link_ip"
-
-
-
-print_info "选定公网 IP: $PUBLIC_IP"
-
-
-update_env PUBLIC_IP "$PUBLIC_IP"
-update_env IP_CHOICE "$IP_CHOICE"
-update_env UUID "$UUID"
-update_env UUID2 "$UUID2"
-update_env WS_PATH1 "$WS_PATH1"
-update_env WS_PATH "$WS_PATH"
-update_env WS_PATH2 "$WS_PATH2"
-update_env PRIVATE_KEY "$(tr -d '\n' < /usr/local/etc/xray/privatekey)"
-update_env PUBLIC_KEY "$(tr -d '\n' < /usr/local/etc/xray/publickey)"
-update_env PASSWORD "$(tr -d '\n' < /usr/local/etc/xray/password)"
-update_env short_id "$short_id"
+    update_env PUBLIC_IP "$PUBLIC_IP"
+    update_env IP_CHOICE "$IP_CHOICE"
+    update_env UUID "$UUID"
+    update_env UUID2 "$UUID2"
+    update_env WS_PATH1 "$WS_PATH1"
+    update_env WS_PATH "$WS_PATH"
+    update_env WS_PATH2 "$WS_PATH2"
+    update_env PRIVATE_KEY "$(tr -d '\n' < /usr/local/etc/xray/privatekey)"
+    update_env PUBLIC_KEY "$(tr -d '\n' < /usr/local/etc/xray/publickey)"
+    update_env PASSWORD "$(tr -d '\n' < /usr/local/etc/xray/password)"
+    update_env short_id "$short_id"
 }
+
 getkey() {
-    echo "[Info] 正在生成 Reality 密钥对，请耐心等待..."
+    print_info "正在生成 Reality 密钥对，请耐心等待..."
 
     mkdir -p /usr/local/etc/xray
 
-    XRAY_BIN="$INSTALL_DIR/xrayls"
+    XRAY_BIN="$xrayls_DTR"
     if [ ! -x "$XRAY_BIN" ]; then
-        echo "[Error] 未找到 xrayls 可执行文件：$XRAY_BIN"
+        print_error "未找到 xrayls 可执行文件：$XRAY_BIN"
         exit 1
     fi
 
@@ -165,7 +163,7 @@ getkey() {
     hash32=$(echo "$key_output" | awk -F': ' '/Hash32/ {print $2}')
 
     if [ -z "$private_key" ] || [ -z "$password" ]; then
-        echo "[Error] 未生成 privateKey 或 password，退出"
+        print_error "未生成 privateKey 或 password，退出"
         exit 1
     fi
 
@@ -178,26 +176,39 @@ getkey() {
     echo "$password" > /usr/local/etc/xray/password
     echo "$hash32" > /usr/local/etc/xray/hash32
     chmod 600 /usr/local/etc/xray/*
-
-  
 }
 
 generate_mlkem() {
     print_info "正在生成 ML-KEM（后量子加密 PQ）参数..."
 
-    if ! command -v xray >/dev/null 2>&1; then
-        print_error "未找到 xray 可执行文件，无法生成 ML-KEM 参数"
+    if [ ! -x "$xrayls_DTR" ]; then
+        print_error "未找到 xrayls 可执行文件：$xrayls_DTR"
         exit 1
     fi
 
-    local output
-    output=$(xray vlessenc)
+    # 调用 xrayls 生成 vlessenc 输出
+    local output CLEAN_OUTPUT
+    output=$("$xrayls_DTR" vlessenc 2>/dev/null || true)
 
-    SERVER_DEC=$(echo "$output" | grep "decryption" | awk -F'"' '{print $4}')
-    CLIENT_ENC=$(echo "$output" | grep "encryption" | awk -F'"' '{print $4}')
+    if [ -z "$output" ]; then
+        print_error "xrayls vlessenc 无输出，ML-KEM 生成失败"
+        exit 1
+    fi
+
+    # 去除 ANSI 颜色 + 合并多行为一行
+    CLEAN_OUTPUT=$(echo "$output" \
+        | sed -E 's/\x1b
+
+\[[0-9;]*m//g' \
+        | tr -d '\n')
+
+    # 提取 decryption / encryption 字段
+    SERVER_DEC=$(echo "$CLEAN_OUTPUT" | grep -oP '"decryption"\s*:\s*"\K[^"]+' || true)
+    CLIENT_ENC=$(echo "$CLEAN_OUTPUT" | grep -oP '"encryption"\s*:\s*"\K[^"]+' || true)
 
     if [[ -z "$SERVER_DEC" || -z "$CLIENT_ENC" ]]; then
-        print_error "ML-KEM 生成失败"
+        print_error "ML-KEM 生成失败（未能正确解析 decryption/encryption 字段）"
+        print_error "原始输出：$output"
         exit 1
     fi
 
@@ -208,24 +219,23 @@ generate_mlkem() {
     update_env CLIENT_ENC "$CLIENT_ENC"
 }
 
-
 generate_all_env() {
-# 检查 openssl 是否存在
-if ! command -v openssl >/dev/null 2>&1; then
-    echo "[Info] openssl 未安装，正在自动安装..."
+    # 检查 openssl 是否存在
+    if ! command -v openssl >/dev/null 2>&1; then
+        print_info "openssl 未安装，正在自动安装..."
 
-    if command -v apt >/dev/null 2>&1; then
-        apt update -y && apt install -y openssl
-    elif command -v yum >/dev/null 2>&1; then
-        yum install -y openssl
-    elif command -v apk >/dev/null 2>&1; then
-        apk add openssl
-    else
-        echo "[Error] 无法自动安装 openssl，请手动安装"
-        exit 1
+        if command -v apt >/dev/null 2>&1; then
+            apt update -y && apt install -y openssl
+        elif command -v yum >/dev/null 2>&1; then
+            yum install -y openssl
+        elif command -v apk >/dev/null 2>&1; then
+            apk add openssl
+        else
+            print_error "无法自动安装 openssl，请手动安装"
+            exit 1
+        fi
     fi
-fi
-    
+
     getkey
     usid
     generate_mlkem
