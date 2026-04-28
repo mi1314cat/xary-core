@@ -182,6 +182,31 @@ getkey() {
   
 }
 
+generate_mlkem() {
+    print_info "正在生成 ML-KEM（后量子加密 PQ）参数..."
+
+    if ! command -v xray >/dev/null 2>&1; then
+        print_error "未找到 xray 可执行文件，无法生成 ML-KEM 参数"
+        exit 1
+    fi
+
+    local output
+    output=$(xray vlessenc)
+
+    SERVER_DEC=$(echo "$output" | grep "decryption" | awk -F'"' '{print $4}')
+    CLIENT_ENC=$(echo "$output" | grep "encryption" | awk -F'"' '{print $4}')
+
+    if [[ -z "$SERVER_DEC" || -z "$CLIENT_ENC" ]]; then
+        print_error "ML-KEM 生成失败"
+        exit 1
+    fi
+
+    print_info "ML-KEM 服务端 decryption: $SERVER_DEC"
+    print_info "ML-KEM 客户端 encryption: $CLIENT_ENC"
+
+    update_env SERVER_DEC "$SERVER_DEC"
+    update_env CLIENT_ENC "$CLIENT_ENC"
+}
 
 
 generate_all_env() {
@@ -203,6 +228,7 @@ fi
     
     getkey
     usid
+    generate_mlkem
 }
 
 generate_all_env
