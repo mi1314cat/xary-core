@@ -186,29 +186,25 @@ generate_mlkem() {
         exit 1
     fi
 
-    # 调用 xrayls 生成 vlessenc 输出
-    local output CLEAN_OUTPUT
-    output=$("$xrayls_DTR" vlessenc 2>/dev/null || true)
+    VLESSENC_OUTPUT=$("$xrayls_DTR" vlessenc 2>/dev/null || true)
 
-    if [ -z "$output" ]; then
-        print_error "xrayls vlessenc 无输出，ML-KEM 生成失败"
+    if [ -z "$VLESSENC_OUTPUT" ]; then
+        print_error "xrayls vlessenc 无输出，无法生成 ML-KEM PQ 加密串"
         exit 1
     fi
 
-    # 去除 ANSI 颜色 + 合并多行为一行
-    CLEAN_OUTPUT=$(echo "$output" \
-        | sed -E 's/\x1b
+    # 换行 → 空格（避免串黏连）
+    CLEAN_OUTPUT=$(echo "$VLESSENC_OUTPUT" | tr '\n' ' ')
 
-\[[0-9;]*m//g' \
-        | tr -d '\n')
+    # 取最后一个 decryption（ML-KEM-768）
+    SERVER_DEC=$(echo "$CLEAN_OUTPUT" | grep -oP '"decryption"\s*:\s*"\K[^"]+' | tail -n 1)
 
-    # 提取 decryption / encryption 字段
-    SERVER_DEC=$(echo "$CLEAN_OUTPUT" | grep -oP '"decryption"\s*:\s*"\K[^"]+' || true)
-    CLIENT_ENC=$(echo "$CLEAN_OUTPUT" | grep -oP '"encryption"\s*:\s*"\K[^"]+' || true)
+    # 取最后一个 encryption（ML-KEM-768）
+    CLIENT_ENC=$(echo "$CLEAN_OUTPUT" | grep -oP '"encryption"\s*:\s*"\K[^"]+' | tail -n 1)
 
     if [[ -z "$SERVER_DEC" || -z "$CLIENT_ENC" ]]; then
-        print_error "ML-KEM 生成失败（未能正确解析 decryption/encryption 字段）"
-        print_error "原始输出：$output"
+        print_error "无法解析 ML-KEM-768 加密串"
+        echo "$VLESSENC_OUTPUT"
         exit 1
     fi
 
@@ -218,6 +214,7 @@ generate_mlkem() {
     update_env SERVER_DEC "$SERVER_DEC"
     update_env CLIENT_ENC "$CLIENT_ENC"
 }
+
 
 generate_all_env() {
     # 检查 openssl 是否存在
