@@ -19,8 +19,8 @@ STATE_FILE="$STATE_DIR/argo_state.env"
 gen_path() { echo "/$(tr -dc 'a-z0-9' </dev/urandom | head -c 10)"; }
 gen_uuid() { cat /proc/sys/kernel/random/uuid; }
 
-WS_PATH=$(gen_path)
-UUID=$(gen_uuid)
+WS_PATH9970=$(gen_path)
+UUID9970=$(gen_uuid)
 
 # -----------------------------
 # 生成 ML-KEM PQ 加密串（最终稳定版）
@@ -64,12 +64,12 @@ cat > "$XRAY_CONF" <<EOF
     {
       "listen": "127.0.0.1",
       "port": 9970,
-      "tag": "vless-argo",
+      "tag": "vless-GDargo",
       "protocol": "vless",
       "settings": {
         "clients": [
           {
-            "id": "${UUID}",
+            "id": "${UUID9970}",
             "flow": "xtls-rprx-vision"
           }
         ],
@@ -78,7 +78,7 @@ cat > "$XRAY_CONF" <<EOF
       "streamSettings": {
         "network": "ws",
         "wsSettings": {
-          "path": "${WS_PATH}"
+          "path": "${WS_PATH9970}"
         }
       }
     }
@@ -110,7 +110,7 @@ update_env "$CATMIENV_FILE" mode xray
 # -----------------------------
 # 生成分享链接（带 ML-KEM PQ）
 # -----------------------------
-SHARE="vless://${UUID}@${uargo_domain}:443?flow=xtls-rprx-vision&security=tls&sni=${uargo_domain}&type=ws&host=${uargo_domain}&path=${WS_PATH}&encryption=${CLIENT_ENC}#vless-ws-argo-mlkem"
+SHARE="vless://${UUID9970}@${uargo_domain}:443?flow=xtls-rprx-vision&security=tls&sni=${uargo_domain}&type=ws&host=${uargo_domain}&path=${WS_PATH9970}&encryption=${CLIENT_ENC}#vless-ws-argo-mlkem"
 
 echo "$SHARE" > "$OUT_DIR/GDargo.txt"
 
