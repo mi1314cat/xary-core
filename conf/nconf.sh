@@ -114,7 +114,7 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
             "flow": "xtls-rprx-vision"
           }
         ],
-        "decryption": "${SERVER_DEC}",
+        
         "fallbacks": [
           {
             "dest": 9997
@@ -197,9 +197,10 @@ EOF
 # 生成分享链接（将 pbk 指向 publickey）
 share_link="
 vless://${UUID}@${link_ip}:${NRPORT}?flow=xtls-rprx-vision&security=reality&sni=${dest_server}&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=${short_id}&type=tcp#Reality
-vless://${UUID}@${NDOMAIN_LOWER}:443?security=tls&sni=${NDOMAIN_LOWER}&type=ws&host=${NDOMAIN_LOWER}&path=${WS_PATH1}#vless-ws-tls
+vless://${UUID}@${NDOMAIN_LOWER}:443?security=tls&sni=${NDOMAIN_LOWER}&type=ws&host=${NDOMAIN_LOWER}&path=${WS_PATH1}&encryption=${CLIENT_ENC}#vless-ws-tls-mlkem
 vmess://${UUID}@${NDOMAIN_LOWER}:443?security=tls&sni=${NDOMAIN_LOWER}&type=ws&host=${NDOMAIN_LOWER}&path=${WS_PATH}#vmess-ws-tls
-vless://${UUID}@${NDOMAIN_LOWER}:443?security=tls&sni=${NDOMAIN_LOWER}&type=xhttp&host=${NDOMAIN_LOWER}&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
+vless://${UUID}@${NDOMAIN_LOWER}:443?security=tls&sni=${NDOMAIN_LOWER}&type=xhttp&host=${NDOMAIN_LOWER}&path=${WS_PATH2}&mode=auto&encryption=${CLIENT_ENC}#vless-xhttp-tls
+
 
 "
 echo "${share_link}" > "$ngconfout_DIR/Nv2ray.txt"
@@ -209,50 +210,66 @@ echo "${share_link}" > "$ngconfout_DIR/Nv2ray.txt"
 n_meta() {
 
 cat << EOF > "$ngconfout_DIR/Nclash-meta.yaml"
+
   - name: Reality
-  type: vless
-  server: ${PUBLIC_IP}
-  port: ${NRPORT}
-  uuid: ${UUID}
-  encryption: none
-  flow: xtls-rprx-vision
-  network: tcp
-  tls: true
-  servername: ${dest_server}
-  skip-cert-verify: true
-  client-fingerprint: chrome
-  reality-opts:
-    public-key: $(cat /usr/local/etc/xray/publickey)
-    short-id: ${short_id}
+    type: vless
+    server: ${PUBLIC_IP}
+    port: ${NRPORT}
+    uuid: ${UUID}
+    encryption: none
+    flow: xtls-rprx-vision
+    network: tcp
+    tls: true
+    servername: ${dest_server}
+    skip-cert-verify: true
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: $(cat /usr/local/etc/xray/publickey)
+      short-id: ${short_id}
 
-- name: vmess-ws-tls
-  type: vmess
-  server: ${NDOMAIN_LOWER}
-  port: 443
-  uuid: ${UUID}
-  alterId: 0
-  cipher: auto
-  tls: true
-  network: ws
-  ws-opts:
-    path: ${WS_PATH}
-    headers:
-      Host: ${NDOMAIN_LOWER}
-  servername: ${NDOMAIN_LOWER}
+  - name: vmess-ws-tls
+    type: vmess
+    server: ${NDOMAIN_LOWER}
+    port: 443
+    uuid: ${UUID}
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-opts:
+      path: ${WS_PATH}
+      headers:
+        Host: ${NDOMAIN_LOWER}
+    servername: ${NDOMAIN_LOWER}
 
-- name: vless-ws-tls
-  type: vless
-  server: ${NDOMAIN_LOWER}
-  port: 443
-  uuid: ${UUID}
-  tls: true
-  skip-cert-verify: true
-  network: ws
-  ws-opts:
-    path: ${WS_PATH1}
-    headers:
-      Host: ${NDOMAIN_LOWER}
-  servername: ${NDOMAIN_LOWER}
+  - name: vless-ws-tls
+    type: vless
+    server: ${NDOMAIN_LOWER}
+    port: 443
+    uuid: ${UUID}
+    encryption: ${CLIENT_ENC}
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    ws-opts:
+      path: ${WS_PATH1}
+      headers:
+        Host: ${NDOMAIN_LOWER}
+    servername: ${NDOMAIN_LOWER}
+
+  - name: vless-xhttp-tls
+    type: vless
+    server: ${NDOMAIN_LOWER}
+    port: 443
+    uuid: ${UUID2}
+    encryption: ${CLIENT_ENC}
+    tls: true
+    skip-cert-verify: true
+    network: xhttp
+    xhttp-opts:
+      path: ${WS_PATH2}
+      mode: auto
+    servername: ${NDOMAIN_LOWER}
 
   
 
