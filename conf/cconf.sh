@@ -15,9 +15,7 @@ print_error() {
 cx_inbounds() {
 
 cat <<EOF > "$INSTALL_DIR/conf/caddy.json"
- 
  {
-
   "log": {
     "access": "$INSTALL_DIR/log/access.log",
     "error": "$INSTALL_DIR/log/error.log",
@@ -25,123 +23,112 @@ cat <<EOF > "$INSTALL_DIR/conf/caddy.json"
     "loglevel": "info",
     "timestamp": true
   },
+
   "dns": {
     "servers": [
       "https+local://1.1.1.1/dns-query",
       "https+local://8.8.8.8/dns-query",
       "localhost"
-
     ]
   },
-  
+
   "routing": {
     "domainStrategy": "IPIfNonMatch",
     "rules": [
-      
-     
-      
       {
-        "domain": [
-          "geosite:category-ads-all" 
-        ],
-        "outboundTag": "block" 
+        "domain": ["geosite:category-ads-all"],
+        "outboundTag": "block"
       }
     ]
   },
-   "inbounds": [
-      {
-         "listen": "0.0.0.0",
-         "port": ${CRPORT},
-         "protocol": "vless",
-         "settings": {
-            "clients": [
-               {
-                  "email": "vision-user",
-                  "flow": "xtls-rprx-vision",
-                  "id": "${UUID}",
-                  "level": 0
-               },
-               {
-                  "email": "xhttp-user",
-                  "id": "${UUID2}",
-                  "level": 0
-               }
-            ],
-            "decryption": "none",
-            "fallbacks": [
-               {
-                  "dest": "/run/xray/xhttp_in.sock",
-                  "xver": 0
-               }
-            ]
-         },
-         "streamSettings": {
-            "network": "raw",
-            "realitySettings": {
-               "privateKey": "$(cat /usr/local/etc/xray/privatekey)",
-               "serverNames": [
-                  "${CDOMAIN_LOWER}",
-                  "${RDOMAIN_LOWE}"
-               ],
-               "shortIds": [
-                  "${short_id}"
-               ],
-               "show": false,
-               "target": "/run/xray/tls_gate.sock",
-               "xver": 0
-            },
-            "security": "reality",
-            "sockopt": {
-               "tcpcongestion": "bbr",
-               "tcpFastOpen": true,
-               "tcpMptcp": true,
-               "tcpNoDelay": true
-            }
-         },
-         "tag": "REALITY_INBOUND"
+
+  "inbounds": [
+    {
+      "tag": "REALITY_INBOUND_01",
+      "listen": "0.0.0.0",
+      "port": ${CRPORT},
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "vision-user",
+            "flow": "xtls-rprx-vision",
+            "id": "${UUID}",
+            "level": 0
+          },
+          {
+            "email": "xhttp-user",
+            "id": "${UUID2}",
+            "level": 0
+          }
+        ],
+        "decryption": "${SERVER_DEC}",   
+        "fallbacks": [
+          {
+            "dest": "/run/xray/xhttp_in.sock",
+            "xver": 0
+          }
+        ]
       },
-      {
-         "listen": "/run/xray/xhttp_in.sock,0666",
-         "protocol": "vless",
-         "settings": {
-            "clients": [
-               {
-                  "email": "xhttp-user",
-                  "id": "${UUID2}",
-                  "level": 0
-               }
-            ],
-            "decryption": "none"
-         },
-         "streamSettings": {
-            "network": "xhttp",
-            "xhttpSettings": {
-               "extra": {
-                  "noSSEHeader": true,
-                  "scMaxEachPostBytes": 1000000,
-                  "xPaddingBytes": "100-1000"
-               },
-               "host": "",
-               "mode": "auto",
-               "path": "${WS_PATH2}"
-            }
-         },
-         "tag": "XHTTP_INBOUND"
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "realitySettings": {
+          "privateKey": "$(cat /usr/local/etc/xray/privatekey)",
+          "serverNames": [
+            "${CDOMAIN_LOWER}",
+            "${RDOMAIN_LOWER}"
+          ],
+          "shortIds": ["${short_id}"],
+          "show": false,
+          "target": "/run/xray/tls_gate.sock",
+          "xver": 0
+        },
+        "sockopt": {
+          "tcpcongestion": "bbr",
+          "tcpFastOpen": true,
+          "tcpMptcp": true,
+          "tcpNoDelay": true
+        }
       }
-   ],
-  "outbounds": [
-    
-    {
-      "tag": "direct",
-      "protocol": "freedom"
     },
-    
+
     {
-      "tag": "block",
-      "protocol": "blackhole"
+      "tag": "XHTTP_INBOUND_02",
+      "listen": "/run/xray/xhttp_in.sock,0666",
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "xhttp-user",
+            "id": "${UUID2}",
+            "level": 0
+          }
+        ],
+        "decryption": "${SERVER_DEC}"   
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "xhttpSettings": {
+          "extra": {
+            "noSSEHeader": true,
+            "scMaxEachPostBytes": 1000000,
+            "xPaddingBytes": "100-1000"
+          },
+          "host": "",
+          "mode": "auto",
+          "path": "${WS_PATH2}"
+        }
+      }
     }
+  ],
+
+  "outbounds": [
+    { "tag": "direct", "protocol": "freedom" },
+    { "tag": "block", "protocol": "blackhole" }
   ]
- }
+}
+
 
 EOF
  
