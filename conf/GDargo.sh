@@ -118,8 +118,8 @@ echo "$SHARE" > "$OUT_DIR/GDargo.txt"
 # 写入状态文件（可追踪）
 # -----------------------------
 cat > "$STATE_FILE" <<EOF
-UUID="${UUID}"
-WS_PATH="${WS_PATH}"
+UUID="${UUID9970}"
+WS_PATH="${WS_PATH9970}"
 ARGO_DOMAIN="${uargo_domain}"
 SERVER_DEC="${SERVER_DEC}"
 CLIENT_ENC="${CLIENT_ENC}"
