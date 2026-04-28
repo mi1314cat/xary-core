@@ -15,7 +15,6 @@ print_error() {
 nx_inbounds() {
 cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
 {
-
   "log": {
     "access": "$INSTALL_DIR/log/access.log",
     "error": "$INSTALL_DIR/log/error.log",
@@ -28,21 +27,14 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
       "https+local://1.1.1.1/dns-query",
       "https+local://8.8.8.8/dns-query",
       "localhost"
-
     ]
   },
-  
   "routing": {
     "domainStrategy": "IPIfNonMatch",
     "rules": [
-      
-     
-      
       {
-        "domain": [
-          "geosite:category-ads-all" 
-        ],
-        "outboundTag": "block" 
+        "domain": ["geosite:category-ads-all"],
+        "outboundTag": "block"
       }
     ]
   },
@@ -50,16 +42,15 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
     {
       "listen": "127.0.0.1",
       "port": 9998,
-      "tag": "VLESS-WS",
-      "protocol": "VLESS",
+      "tag": "VLESS-WS_01",
+      "protocol": "vless",
       "settings": {
         "clients": [
           {
-            "id": "${UUID}",
-            "alterId": 64
+            "id": "${UUID}"
           }
         ],
-        "decryption": "none"
+        "decryption": "${SERVER_DEC}"
       },
       "streamSettings": {
         "network": "ws",
@@ -71,13 +62,12 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
     {
       "listen": "127.0.0.1",
       "port": 9999,
-      "tag": "VMESS-WS",
+      "tag": "VMESS-WS_02",
       "protocol": "vmess",
       "settings": {
         "clients": [
           {
-            "id": "${UUID}",
-            "alterId": 0
+            "id": "${UUID}"
           }
         ]
       },
@@ -91,9 +81,10 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
     {
       "listen": "127.0.0.1",
       "port": 9997,
+      "tag": "XHTTP_INBOUND_03",
       "protocol": "vless",
       "settings": {
-        "decryption": "none",
+        "decryption": "${SERVER_DEC}",
         "clients": [
           {
             "id": "${UUID}"
@@ -108,17 +99,13 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
       },
       "sniffing": {
         "enabled": true,
-        "destOverride": [
-          "http",
-          "tls",
-          "quic"
-        ]
-      },
-      "tag": "in1"
+        "destOverride": ["http", "tls", "quic"]
+      }
     },
     {
       "listen": "0.0.0.0",
       "port": ${NRPORT},
+      "tag": "REALITY_INBOUND_04",
       "protocol": "vless",
       "settings": {
         "clients": [
@@ -127,7 +114,7 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
             "flow": "xtls-rprx-vision"
           }
         ],
-        "decryption": "none",
+        "decryption": "${SERVER_DEC}",
         "fallbacks": [
           {
             "dest": 9997
@@ -141,33 +128,25 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
           "show": true,
           "dest": "${dest_server}:443",
           "xver": 0,
-          "serverNames": [
-            "${dest_server}"
-          ],
+          "serverNames": ["${dest_server}"],
           "privateKey": "$(cat /usr/local/etc/xray/privatekey)",
-          "minClientVer": "",
-          "maxClientVer": "",
-          "maxTimeDiff": 0,
-          "shortIds": [
-            "${short_id}"
-          ]
+          "shortIds": ["${short_id}"]
         }
       }
     }
   ],
   "outbounds": [
-    
     {
       "tag": "direct",
       "protocol": "freedom"
     },
-    
     {
       "tag": "block",
       "protocol": "blackhole"
     }
   ]
 }
+
 
 EOF
 }
@@ -217,10 +196,11 @@ EOF
 
 # 生成分享链接（将 pbk 指向 publickey）
 share_link="
-vless://${UUID}@${link_ip}:${NRPORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${dest_server}&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=${short_id}&type=tcp&headerType=none#Reality
-vless://${UUID}@${NDOMAIN_LOWER}:443?encryption=none&security=tls&sni=${NDOMAIN_LOWER}&allowInsecure=1&type=ws&host=${NDOMAIN_LOWER}&path=${WS_PATH1}#vless-ws-tls
-vmess://${UUID}@${NDOMAIN_LOWER}:443?encryption=none&security=tls&sni=${NDOMAIN_LOWER}&allowInsecure=1&type=ws&host=${NDOMAIN_LOWER}&path=${WS_PATH}#vmess-ws-tls
-vless://${UUID}@${NDOMAIN_LOWER}:443?encryption=none&security=tls&sni=${NDOMAIN_LOWER}&type=xhttp&host=${NDOMAIN_LOWER}&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
+vless://${UUID}@${link_ip}:${NRPORT}?flow=xtls-rprx-vision&security=reality&sni=${dest_server}&fp=chrome&pbk=$(cat /usr/local/etc/xray/publickey)&sid=${short_id}&type=tcp#Reality
+vless://${UUID}@${NDOMAIN_LOWER}:443?security=tls&sni=${NDOMAIN_LOWER}&type=ws&host=${NDOMAIN_LOWER}&path=${WS_PATH1}#vless-ws-tls
+vmess://${UUID}@${NDOMAIN_LOWER}:443?security=tls&sni=${NDOMAIN_LOWER}&type=ws&host=${NDOMAIN_LOWER}&path=${WS_PATH}#vmess-ws-tls
+vless://${UUID}@${NDOMAIN_LOWER}:443?security=tls&sni=${NDOMAIN_LOWER}&type=xhttp&host=${NDOMAIN_LOWER}&path=${WS_PATH2}&mode=auto#vless-xhttp-tls
+
 "
 echo "${share_link}" > "$ngconfout_DIR/Nv2ray.txt"
 
@@ -230,50 +210,50 @@ n_meta() {
 
 cat << EOF > "$ngconfout_DIR/Nclash-meta.yaml"
   - name: Reality
-    port: ${NRPORT}
-    server: ${PUBLIC_IP}
-    type: vless
-    network: tcp
-    udp: true
-    tls: true
-    servername: ${dest_server}
-    skip-cert-verify: true
-    reality-opts:
-      public-key: $(cat /usr/local/etc/xray/publickey)
-      short-id: ${short_id}
-    uuid: ${UUID}
-    flow: xtls-rprx-vision
-    client-fingerprint: chrome
-  - name: vmess-ws-tls
-    type: vmess
-    server: ${NDOMAIN_LOWER}
-    port: 443
-    cipher: auto
-    uuid: ${UUID}
-    alterId: 0
-    tls: true
-    network: ws
-    ws-opts:
-      path: ${WS_PATH}
-      headers:
-        Host: ${NDOMAIN_LOWER}
-    servername: ${NDOMAIN_LOWER}
-  - name: vless-ws-tls
-    type: vless
-    server: ${NDOMAIN_LOWER}
-    port: 443
-    uuid: ${UUID}
-    tls: true
-    skip-cert-verify: true
-    network: ws
-    alterId: 0
-    cipher: auto
-    ws-opts:
-      headers:
-        Host: ${NDOMAIN_LOWER}
-      path: ${WS_PATH1}
-    servername: ${NDOMAIN_LOWER}
-  
+  type: vless
+  server: ${PUBLIC_IP}
+  port: ${NRPORT}
+  uuid: ${UUID}
+  encryption: none
+  flow: xtls-rprx-vision
+  network: tcp
+  tls: true
+  servername: ${dest_server}
+  skip-cert-verify: true
+  client-fingerprint: chrome
+  reality-opts:
+    public-key: $(cat /usr/local/etc/xray/publickey)
+    short-id: ${short_id}
+
+- name: vmess-ws-tls
+  type: vmess
+  server: ${NDOMAIN_LOWER}
+  port: 443
+  uuid: ${UUID}
+  alterId: 0
+  cipher: auto
+  tls: true
+  network: ws
+  ws-opts:
+    path: ${WS_PATH}
+    headers:
+      Host: ${NDOMAIN_LOWER}
+  servername: ${NDOMAIN_LOWER}
+
+- name: vless-ws-tls
+  type: vless
+  server: ${NDOMAIN_LOWER}
+  port: 443
+  uuid: ${UUID}
+  tls: true
+  skip-cert-verify: true
+  network: ws
+  ws-opts:
+    path: ${WS_PATH1}
+    headers:
+      Host: ${NDOMAIN_LOWER}
+  servername: ${NDOMAIN_LOWER}
+
   
 
 EOF
