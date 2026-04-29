@@ -116,10 +116,12 @@ ${GREEN}添加节点${PLAIN}
 ${GREEN}1.${PLAIN} 添加 Tunnel 节点
 ${GREEN}2.${PLAIN} 添加 Hysteria2 节点
 ${GREEN}3.${PLAIN} 添加 SOCKS5 节点
+${GREEN}4.${PLAIN} 添加 固定argo 节点
+${GREEN}5.${PLAIN} 添加 临时argo 节点
 ${GREEN}0.${PLAIN} 返回主菜单
 ----------------------"
 
-    read -p "请输入选项 [0-3]: " nchoice
+    read -p "请输入选项 [0-5]: " nchoice
 
     case "${nchoice}" in
         0) return ;;
@@ -135,6 +137,14 @@ ${GREEN}0.${PLAIN} 返回主菜单
             bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/sock5.sh)
             systemctl restart xrayls.service
             ;;
+        4)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/GDargo.sh)
+            systemctl restart xrayls.service
+            ;;
+        5)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/lsargo.sh)
+            systemctl restart xrayls.service
+            ;;    
         *)
             echo -e "${RED}无效的选项${PLAIN}"
             ;;
