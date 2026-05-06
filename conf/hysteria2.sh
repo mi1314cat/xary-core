@@ -281,8 +281,8 @@ add_config() {
 
     generate_self_signed_cert "$domain"
 
+   
     next=$(get_next_index)
-    next=$((next + 1))
     index=$(printf "%02d" $next)
 
     file="$CONF_DIR/$PROTO-$index.json"
