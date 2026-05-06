@@ -129,7 +129,7 @@ choose_listen_ip() {
     echo "请选择监听地址：" >&2
     echo "1) IPv4 (0.0.0.0)" >&2
     echo "2) IPv6 (::)" >&2
-    echo "3) 自动推荐" >&2
+    echo "3) 本机回环 (127.0.0.1)" >&2
 
     printf "选择 (默认 1): " >&2
     read choice
@@ -137,17 +137,11 @@ choose_listen_ip() {
 
     case "$choice" in
         2) echo "::" ;;
-        3)
-            case "$detect" in
-                ipv4) echo "0.0.0.0" ;;
-                ipv6) echo "::" ;;
-                dual) echo "0.0.0.0" ;;
-                none) echo "0.0.0.0" ;;
-            esac
-            ;;
+        3) echo "127.0.0.1" ;;   # ← 改成回环地址
         *) echo "0.0.0.0" ;;
     esac
 }
+
 
 # ================================
 # 显示所有配置
