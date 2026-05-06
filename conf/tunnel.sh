@@ -123,7 +123,27 @@ ask_port_with_default() {
         return
     done
 }
-
+get_next_index() {
+    local used=() i=1
+    shopt -s nullglob
+    for f in "$CONF_DIR"/${PROTO}-*.json; do
+        local base
+        base=$(basename "$f")
+        if [[ "$base" =~ ^${PROTO}-([0-9]+)\.json$ ]]; then
+            used+=("${BASH_REMATCH[1]}")
+        fi
+    done
+    if ((${#used[@]} == 0)); then
+        printf "%02d\n" 1
+        return
+    fi
+    IFS=$'\n' used=($(printf "%s\n" "${used[@]}" | sort -n))
+    for n in "${used[@]}"; do
+        [[ "$n" -ne "$i" ]] && break
+        ((i++))
+    done
+    printf "%02d\n" "$i"
+}
 # ================================
 # UI 标题
 # ================================
@@ -192,8 +212,7 @@ add_config() {
         *) net="tcp,udp" ;;
     esac
 
-    next=$(ls "$CONF_DIR"/$PROTO-*.json 2>/dev/null | wc -l)
-    next=$((next + 1))
+    next=$(get_next_index)
 
     file="$CONF_DIR/$PROTO-$(printf "%02d" $next).json"
 
