@@ -239,8 +239,25 @@ generate_self_signed_cert() {
 # 获取下一个编号（01、02、03…）
 # ================================
 get_next_index() {
-    ls "$CONF_DIR"/$PROTO-*.json 2>/dev/null | \
-    sed -E 's/.*-([0-9]+)\.json/\1/' | sort -n | tail -1
+    local used=() i=1
+    shopt -s nullglob
+    for f in "$CONF_DIR"/${PROTO}-*.json; do
+        local base
+        base=$(basename "$f")
+        if [[ "$base" =~ ^${PROTO}-([0-9]+)\.json$ ]]; then
+            used+=("${BASH_REMATCH[1]}")
+        fi
+    done
+    if ((${#used[@]} == 0)); then
+        printf "%02d\n" 1
+        return
+    fi
+    IFS=$'\n' used=($(printf "%s\n" "${used[@]}" | sort -n))
+    for n in "${used[@]}"; do
+        [[ "$n" -ne "$i" ]] && break
+        ((i++))
+    done
+    printf "%02d\n" "$i"
 }
 
 # ================================
