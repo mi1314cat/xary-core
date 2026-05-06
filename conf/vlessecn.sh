@@ -31,8 +31,8 @@ print_title() {
 # ================================
 # 基础变量
 # ================================
-PROTO="vless"                     # 用于文件名/tag
-PROTO_NAME="VLESS-WS-MLKEM"       # 用于显示
+PROTO="vless-xhttp"                     # 用于文件名/tag
+PROTO_NAME="VLESS-xhttp-MLKEM"       # 用于显示
 CONF_DIR="/root/catmi/xray/conf"
 XRAYLS_BIN="/root/catmi/xray/xrayls"
 
@@ -294,33 +294,41 @@ cat <<EOF > "$file"
         "decryption": "$SERVER_DEC"
       },
       "streamSettings": {
-        "network": "ws",
-        "wsSettings": {
-          "path": "$WS_PATH1"
+        "network": "xhttp",
+        "xhttpSettings": {
+          "path": "${WS_PATH1}"
         }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"]
       }
     }
   ]
 }
 EOF
 
+
+
     print_ok "新增 ${PROTO_NAME} 配置成功"
     echo -e "编号: $next\n监听地址: $listen_ip\n端口: $lport\nUUID: $UUID\nWS 路径: $WS_PATH1\nTag: $tag_name" >&2
     echo >&2
     print_info "=== 客户端链接 ==="
-    echo "vless://${UUID}@${link_ip}:${lport}?type=ws&path=${WS_PATH1}&encryption=${CLIENT_ENC}#vless-ws-mlkem" >&2
+    echo "vless://${UUID}@${link_ip}:${lport}?type=xhttp&path=${WS_PATH1}&encryption=${CLIENT_ENC}#vless-xhttp-mlkem" >&2
     echo >&2
     print_info "=== YAML 客户端配置示例 ==="
     cat >&2 <<EOF
-- name: vless-ws-mlkem-$next
+- name: vless-xhttp-mlkem-$next
   type: vless
   server: PUBLIC_IP
   port: $lport
   uuid: $UUID
   encryption: $CLIENT_ENC
-  network: ws
-  ws-opts:
+  network: xhttp
+  xhttp-opts:
     path: $WS_PATH1
+    host: PUBLIC_IP
+
 EOF
 }
 
