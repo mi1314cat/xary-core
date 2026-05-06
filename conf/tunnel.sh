@@ -213,8 +213,8 @@ add_config() {
     esac
 
     next=$(get_next_index)
-
-    file="$CONF_DIR/$PROTO-$(printf "%02d" $next).json"
+    file="$CONF_DIR/$PROTO-$next.json"
+    
 
     cat <<EOF > "$file"
 {
