@@ -33,6 +33,31 @@ CONF_DIR="/root/catmi/xray/conf"
 mkdir -p "$CONF_DIR"
 
 # ================================
+# 编号系统（自动补洞 + 连续编号）
+# ================================
+get_next_index() {
+    local used=() i=1
+    shopt -s nullglob
+    for f in "$CONF_DIR"/${PROTO}-*.json; do
+        local base
+        base=$(basename "$f")
+        if [[ "$base" =~ ^${PROTO}-([0-9]+)\.json$ ]]; then
+            used+=("${BASH_REMATCH[1]}")
+        fi
+    done
+    if ((${#used[@]} == 0)); then
+        printf "%02d\n" 1
+        return
+    fi
+    IFS=$'\n' used=($(printf "%s\n" "${used[@]}" | sort -n))
+    for n in "${used[@]}"; do
+        [[ "$n" -ne "$i" ]] && break
+        ((i++))
+    done
+    printf "%02d\n" "$i"
+}
+
+# ================================
 # 随机生成函数
 # ================================
 random_port() { shuf -i 10000-60000 -n 1; }
@@ -82,10 +107,8 @@ safe_read_port() {
 detect_listen_ip() {
     local has_ipv4=false
     local has_ipv6=false
-
     ip -4 addr show scope global | grep -q "inet " && has_ipv4=true
     ip -6 addr show scope global | grep -q "inet6 [2-9a-fA-F]" && has_ipv6=true
-
     if $has_ipv4 && ! $has_ipv6; then echo "ipv4"
     elif ! $has_ipv4 && $has_ipv6; then echo "ipv6"
     elif $has_ipv4 && $has_ipv6; then echo "dual"
@@ -95,23 +118,19 @@ detect_listen_ip() {
 
 choose_listen_ip() {
     local detect="$1"
-
     print_info "自动检测结果："
     [[ "$detect" == "ipv4" ]] && echo "  - 检测到 IPv4" >&2
     [[ "$detect" == "ipv6" ]] && echo "  - 检测到 IPv6" >&2
     [[ "$detect" == "dual" ]] && echo "  - 检测到 IPv4 + IPv6" >&2
     [[ "$detect" == "none" ]] && echo "  - 未检测到公网 IP" >&2
-
     echo >&2
     echo "请选择监听地址：" >&2
     echo "1) IPv4 (0.0.0.0)" >&2
     echo "2) IPv6 (::)" >&2
     echo "3) 本机回环 (127.0.0.1)" >&2
-
     printf "选择 (默认 1): " >&2
     read choice
     choice=$(clean_input "$choice")
-
     case "$choice" in
         2) echo "::" ;;
         3) echo "127.0.0.1" ;;
@@ -124,21 +143,15 @@ choose_listen_ip() {
 # ================================
 add_config() {
     print_title "新增 vmess+ws 配置"
-
     detect=$(detect_listen_ip)
     listen_ip=$(choose_listen_ip "$detect")
-
     default_port=$(random_free_port)
     uuid=$(random_uuid)
     ws_path="/$(random_path)"
-
     lport=$(safe_read_port "$default_port")
-
-    next=$(ls "$CONF_DIR"/$PROTO-*.json 2>/dev/null | wc -l)
-    next=$((next + 1))
+    next=$(get_next_index)
     tag_name="${PROTO}${next}"
-
-    file="$CONF_DIR/$PROTO-$(printf "%02d" $next).json"
+    file="$CONF_DIR/$PROTO-$next.json"
 
 cat <<EOF > "$file"
 {
@@ -176,10 +189,8 @@ EOF
 # ================================
 list_configs() {
     print_title "当前 vmess+ws 配置列表"
-
     echo -e "${CYAN}编号 | 监听地址 | 端口 | UUID | WS路径 | Tag${RESET}" >&2
     echo "--------------------------------------------------------" >&2
-
     for f in "$CONF_DIR"/$PROTO-*.json; do
         [[ -f "$f" ]] || continue
         num=$(basename "$f" .json | cut -d'-' -f2)
@@ -188,10 +199,8 @@ list_configs() {
         uuid=$(jq -r '.inbounds[0].settings.clients[0].id' "$f")
         ws_path=$(jq -r '.inbounds[0].streamSettings.wsSettings.path' "$f")
         tag=$(jq -r '.inbounds[0].tag' "$f")
-
         echo -e "${GREEN}$num${RESET}) 地址: ${CYAN}$listen_ip${RESET} | 端口: ${CYAN}$lport${RESET} | UUID: ${YELLOW}$uuid${RESET} | WS路径: ${MAGENTA}$ws_path${RESET} | Tag: ${BLUE}$tag${RESET}" >&2
     done
-
     echo "--------------------------------------------------------" >&2
 }
 
@@ -203,7 +212,7 @@ delete_config() {
     printf "请输入要删除的编号: " >&2
     read num
     num=$(clean_input "$num")
-    file="$CONF_DIR/$PROTO-$(printf "%02d" $num).json"
+    file="$CONF_DIR/$PROTO-$num.json"
     if [[ -f "$file" ]]; then
         rm -f "$file"
         print_ok "已删除编号 $num 的 vmess+ws 配置"
@@ -229,11 +238,29 @@ config_menu() {
         c=$(clean_input "$c")
 
         case $c in
-            1) list_configs; printf "按回车继续..." >&2; read ;;
-            2) add_config; printf "按回车继续..." >&2; read ;;
-            3) delete_config; printf "按回车继续..." >&2; read ;;
-            0) return ;;
-            *) print_error "无效选项"; printf "按回车继续..." >&2; read ;;
+            1)
+                list_configs
+                printf "按回车继续..." >&2
+                read
+            ;;
+            2)
+                add_config
+                printf "按回车继续..." >&2
+                read
+            ;;
+            3)
+                delete_config
+                printf "按回车继续..." >&2
+                read
+            ;;
+            0)
+                return   # ← 返回主菜单，不暂停
+            ;;
+            *)
+                print_error "无效选项"
+                printf "按回车继续..." >&2
+                read
+            ;;
         esac
     done
 }
