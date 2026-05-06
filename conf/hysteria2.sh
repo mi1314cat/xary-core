@@ -283,7 +283,7 @@ add_config() {
 
    
     next=$(get_next_index)
-    index=$(printf "%02d" $next)
+    index=$next
 
     file="$CONF_DIR/$PROTO-$index.json"
 
