@@ -189,7 +189,7 @@ add_config() {
     case "$choice" in
         1) net="tcp" ;;
         2) net="udp" ;;
-        *) net="tcp" ;;
+        *) net="tcp,udp" ;;
     esac
 
     next=$(ls "$CONF_DIR"/$PROTO-*.json 2>/dev/null | wc -l)
