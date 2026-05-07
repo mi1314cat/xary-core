@@ -115,42 +115,69 @@ ${GREEN}添加节点${PLAIN}
 ----------------------
 ${GREEN}1.${PLAIN} 添加 Tunnel 节点
 ${GREEN}2.${PLAIN} 添加 Hysteria2 节点
-${GREEN}3.${PLAIN} 添加 SOCKS5 节点
-${GREEN}4.${PLAIN} 添加 固定argo 节点
-${GREEN}5.${PLAIN} 添加 临时argo 节点
+${GREEN}3.${PLAIN} 添加 SOCKS5 节点（无加密）
+${GREEN}4.${PLAIN} 添加 VLESS-ECN 节点（tcp传输）
+${GREEN}5.${PLAIN} 添加 HTTP 节点（无加密）
+${GREEN}6.${PLAIN} 添加 VLESS-xHTTP TLS 节点
+
+---------------------- Argo 节点 ----------------------
+${GREEN}7.${PLAIN} 添加 固定 Argo 节点
+${GREEN}8.${PLAIN} 添加 临时 Argo 节点
+
 ${GREEN}0.${PLAIN} 返回主菜单
 ----------------------"
 
-    read -p "请输入选项 [0-5]: " nchoice
+    read -p "请输入选项 [0-8]: " nchoice
 
     case "${nchoice}" in
         0) return ;;
+
         1)
             bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/tunnel.sh)
             systemctl restart xrayls.service
             ;;
+
         2)
             bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/hysteria2.sh)
             systemctl restart xrayls.service
             ;;
+
         3)
             bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/sock5.sh)
             systemctl restart xrayls.service
             ;;
+
         4)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/vlessecn.sh)
+            systemctl restart xrayls.service
+            ;;
+
+        5)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/http.sh)
+            systemctl restart xrayls.service
+            ;;
+
+        6)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/vlessxhttp_tls.sh)
+            systemctl restart xrayls.service
+            ;;
+
+        7)
             bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/GDargo.sh)
             systemctl restart xrayls.service
             ;;
-        5)
+
+        8)
             bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/lsargo.sh)
             systemctl restart xrayls.service
-            ;;    
+            ;;
+
         *)
             echo -e "${RED}无效的选项${PLAIN}"
             ;;
     esac
 
-    return   # ← 关键点：不要再 read
+    return
 }
 
 
