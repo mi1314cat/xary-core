@@ -355,11 +355,12 @@ mkdir -p /root/catmi/xray/out
     print_info "=== 客户端链接 ==="
     link="vless://${UUID}@${link_ip}:${lport}?type=tcp&encryption=${CLIENT_ENC}#vless-tcp-mlkem" 
     # 追加写入文件
-    echo "$link" >> /root/catmi/xray/out/${PROTO_NAME}.txt
+    echo "$link" >> /root/catmi/xray/out/${PROTO}.txt
 
     # 10. YAML 示例
     print_info "=== YAML 客户端配置示例 ==="
-    cat >&2 <<EOF
+    cat >> /root/catmi/xray/out/${PROTO}.yaml <<EOF
+# [$next] vless-tcp-mlkem-$next
 - name: vless-tcp-mlkem-$next
   type: vless
   server: $PUBLIC_IP
@@ -367,8 +368,9 @@ mkdir -p /root/catmi/xray/out
   uuid: $UUID
   encryption: $CLIENT_ENC
   network: tcp
-  flow: ""   # TCP 无需 flow，可省略此行
+  flow: ""
 EOF
+
     echo >&2
 }
 
