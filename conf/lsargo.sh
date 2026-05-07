@@ -18,6 +18,26 @@ WS_PATH8080=$(generate_ws_path)
 UUID8080=$(generate_uuid)
 
 mkdir -p "$CONF_DIR" "$OUT_DIR"
+generate_port() {
+    local protocol="$1"
+    while :; do
+        candidate=$((RANDOM % 10001 + 10000))
+        read -p "请为 ${protocol} 输入监听端口(回车使用随机端口 $candidate): " user_input
+        port=${user_input:-$candidate}
+        # 检查是否为数字且在 1-65535 范围内
+        if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+            echo "端口 $port 无效，请输入 1-65535 的数字"
+            continue
+        fi
+        # 检查端口是否被占用
+        if ss -tuln | awk '{print $5}' | grep -E -q "(:|\\])${port}\$"; then
+            echo "端口 $port 被占用，请输入其他端口"
+            continue
+        fi
+        echo "$port"
+        return 0
+    done
+}
 
 # -----------------------------
 # 生成 ML-KEM PQ 加密串（稳定版）
@@ -51,6 +71,8 @@ fi
 
 echo "[Info] ML-KEM 服务端 decryption: $SERVER_DEC"
 echo "[Info] ML-KEM 客户端 encryption: $CLIENT_ENC"
+lsargo_port=$(generate_port "监听端口")
+update_env "$CATMIENV_FILE" lsargo_port $lsargo_port
 
 # -----------------------------
 # 写入 Xray 配置（加入 ML-KEM PQ）
@@ -60,7 +82,7 @@ cat <<EOF > "$file"
   "inbounds": [
     {
       "listen": "127.0.0.1",
-      "port": 8080,
+      "port": "${lsargo_port}",
       "tag": "VLESS-lsargo",
       "protocol": "vless",
       "settings": {
