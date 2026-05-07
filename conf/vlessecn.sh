@@ -39,10 +39,13 @@ print_title() {
 # ================================
 # 基础变量
 # ================================
-PROTO="vless-tcp-mlkem"               # 用于文件名/tag
-PROTO_NAME="VLESS-TCP-ML-KEM"         # 用于显示
+PROTO="vless-tcp-mlkem"
+PROTO_NAME="VLESS-TCP-ML-KEM"
 CONF_DIR="/root/catmi/xray/conf"
-FIXED_ENC="mlkem768x25519plus.native.600s.OEYSQhMul9UVxme8omvFtznEWqQViMIEORBJp0fVKekmjMwzBj1NwCikhruSYboDfvnnCS2XTXjWOv1W7PAw4w"
+XRAYLS_BIN="/root/catmi/xray/xrayls"   # 必需，用于生成 ML-KEM 密钥
+
+# 备用固定密钥（当 xrayls 不可用时自动使用）
+FALLBACK_ENC="mlkem768x25519plus.native.600s.OEYSQhMul9UVxme8omvFtznEWqQViMIEORBJp0fVKekmjMwzBj1NwCikhruSYboDfvnnCS2XTXjWOv1W7PAw4w"
 
 mkdir -p "$CONF_DIR"
 
@@ -51,12 +54,8 @@ mkdir -p "$CONF_DIR"
 # ================================
 random_port() { shuf -i 10000-60000 -n 1; }
 
-# ================================
-# 端口检测
-# ================================
-port_in_use() {
-    ss -tuln | awk '{print $5}' | grep -E -q "(:|])$1$"
-}
+# 修正后的端口检测：精确匹配行末 ":端口号"
+port_in_use() { ss -tuln | awk '{print $5}' | grep -q ":${1}$"; }
 
 random_free_port() {
     while true; do
@@ -71,15 +70,10 @@ random_free_port() {
 # ================================
 # 安全输入（过滤控制字符）
 # ================================
-clean_input() {
-    echo "$1" | tr -d '\000-\037'
-}
+clean_input() { echo "$1" | tr -d '\000-\037'; }
 
 safe_read() {
-    local prompt="$1"
-    local default="$2"
-    local input
-
+    local prompt="$1" default="$2" input
     printf "%s (默认: %s): " "$prompt" "$default" >&2
     read input
     input=$(clean_input "$input")
@@ -87,9 +81,7 @@ safe_read() {
 }
 
 safe_read_port() {
-    local default="$1"
-    local input
-
+    local default="$1" input port
     while true; do
         printf "请输入监听端口 (1-65535, 默认: %s): " "$default" >&2
         read input
@@ -106,10 +98,9 @@ safe_read_port() {
 }
 
 get_next_index() {
-    local used=() i=1
+    local used=() i=1 f base
     shopt -s nullglob
     for f in "$CONF_DIR"/${PROTO}-*.json; do
-        local base
         base=$(basename "$f")
         if [[ "$base" =~ ^${PROTO}-([0-9]+)\.json$ ]]; then
             used+=("${BASH_REMATCH[1]}")
@@ -131,9 +122,7 @@ get_next_index() {
 # IPv4 / IPv6 自动检测
 # ================================
 detect_listen_ip() {
-    local has_ipv4=false
-    local has_ipv6=false
-
+    local has_ipv4=false has_ipv6=false
     ip -4 addr show scope global | grep -q "inet " && has_ipv4=true
     ip -6 addr show scope global | grep -q "inet6 [2-9a-fA-F]" && has_ipv6=true
 
@@ -148,8 +137,7 @@ detect_listen_ip() {
 # 监听地址选择
 # ================================
 choose_listen_ip() {
-    local detect="$1"
-
+    local detect="$1" choice
     print_info "自动检测结果："
     [[ "$detect" == "ipv4" ]] && echo "  - 检测到 IPv4" >&2
     [[ "$detect" == "ipv6" ]] && echo "  - 检测到 IPv6" >&2
@@ -185,22 +173,17 @@ list_configs() {
     shopt -s nullglob
     for f in "$CONF_DIR"/$PROTO-*.json; do
         [[ -f "$f" ]] || continue
-
         num=$(basename "$f" .json | cut -d'-' -f2)
-        # 容错：如果 JSON 损坏则跳过
         if ! jq empty "$f" 2>/dev/null; then
             echo -e "${RED}[损坏]${RESET} $num (无法解析 JSON)" >&2
             continue
         fi
-
         lport=$(jq -r '.inbounds[0].port' "$f")
         listen=$(jq -r '.inbounds[0].listen' "$f")
         uuid=$(jq -r '.inbounds[0].settings.clients[0].id' "$f")
         tag=$(jq -r '.inbounds[0].tag' "$f")
-
         echo -e "${GREEN}$num${RESET}) ${YELLOW}$listen${RESET} | ${CYAN}$lport${RESET} | ${MAGENTA}$uuid${RESET} | Tag: ${WHITE}$tag${RESET}" >&2
     done
-
     echo "--------------------------------------------------------------------------------" >&2
 }
 
@@ -208,8 +191,7 @@ list_configs() {
 # 公网 IP 获取（支持手动输入）
 # ================================
 get_public_ip() {
-    local ipv4 ipv6 choice
-
+    local ipv4 ipv6 choice manual_ip
     ipv4=$(curl -s4 --connect-timeout 3 https://api.ipify.org 2>/dev/null || true)
     ipv6=$(curl -s6 --connect-timeout 3 https://api64.ipify.org 2>/dev/null || true)
 
@@ -236,20 +218,13 @@ get_public_ip() {
         printf "选择 (默认 1): " >&2
         read choice
         choice=$(clean_input "${choice:-1}")
-
         case $choice in
-            1) if [ -n "$ipv4" ]; then echo "$ipv4"; return; else print_error "IPv4 不可用"; fi ;;
-            2) if [ -n "$ipv6" ]; then echo "$ipv6"; return; else print_error "IPv6 不可用"; fi ;;
-            3) 
-                printf "输入 IP: " >&2
-                read ip
-                ip=$(clean_input "$ip")
-                if [[ "$ip" =~ ^[0-9a-fA-F:.]+$ ]]; then
-                    echo "$ip"
-                    return
-                fi
-                print_error "格式无效"
-                ;;
+            1) [ -n "$ipv4" ] && { echo "$ipv4"; return; } || print_error "IPv4 不可用" ;;
+            2) [ -n "$ipv6" ] && { echo "$ipv6"; return; } || print_error "IPv6 不可用" ;;
+            3) printf "输入 IP: " >&2; read manual_ip
+               manual_ip=$(clean_input "$manual_ip")
+               if [[ "$manual_ip" =~ ^[0-9a-fA-F:.]+$ ]]; then echo "$manual_ip"; return; fi
+               print_error "格式无效" ;;
             *) print_error "选项无效" ;;
         esac
     done
@@ -270,63 +245,98 @@ generate_uuid() {
 }
 
 # ================================
-# 新增配置
+# ML-KEM 参数生成（核心优化）
+# ================================
+generate_mlkem() {
+    if [ ! -x "$XRAYLS_BIN" ]; then
+        print_error "未找到 xrayls 可执行文件: $XRAYLS_BIN"
+        print_info "将使用备用固定加密密钥（功能不受影响）"
+        SERVER_DEC="$FALLBACK_ENC"
+        CLIENT_ENC="$FALLBACK_ENC"
+        return 0
+    fi
+
+    print_info "正在通过 xrayls 生成 ML-KEM 参数..."
+    local output
+    output=$("$XRAYLS_BIN" vlessenc 2>/dev/null || true)
+    if [ -z "$output" ]; then
+        print_error "xrayls vlessenc 无输出，回退到固定密钥"
+        SERVER_DEC="$FALLBACK_ENC"
+        CLIENT_ENC="$FALLBACK_ENC"
+        return 0
+    fi
+
+    SERVER_DEC=$(echo "$output" | grep -oP '"decryption"\s*:\s*"\K[^"]+' | tail -1)
+    CLIENT_ENC=$(echo "$output" | grep -oP '"encryption"\s*:\s*"\K[^"]+' | tail -1)
+
+    if [ -z "$SERVER_DEC" ] || [ -z "$CLIENT_ENC" ]; then
+        print_error "解析 ML-KEM 参数失败，回退到固定密钥"
+        SERVER_DEC="$FALLBACK_ENC"
+        CLIENT_ENC="$FALLBACK_ENC"
+    else
+        print_info "服务端 decryption: $SERVER_DEC"
+        print_info "客户端 encryption: $CLIENT_ENC"
+    fi
+}
+
+# ================================
+# 新增配置（使用 jq 动态生成 JSON）
 # ================================
 add_config() {
     print_title "新增 ${PROTO_NAME} 配置"
 
-    detect=$(detect_listen_ip)
-    listen_ip=$(choose_listen_ip "$detect")
+    # 1. 监听地址
+    local detect=$(detect_listen_ip)
+    local listen_ip=$(choose_listen_ip "$detect")
 
-    default_port=$(random_free_port)
-    lport=$(safe_read_port "$default_port")
+    # 2. 端口
+    local default_port=$(random_free_port)
+    local lport=$(safe_read_port "$default_port")
 
-    PUBLIC_IP=$(get_public_ip)
-
-    # IPv6 URL 需要中括号
+    # 3. 公网 IP
+    local PUBLIC_IP=$(get_public_ip)
+    local link_ip
     if [[ "$PUBLIC_IP" =~ : ]]; then
         link_ip="[$PUBLIC_IP]"
     else
         link_ip="$PUBLIC_IP"
     fi
 
-    UUID=$(generate_uuid)
+    # 4. UUID
+    local UUID=$(generate_uuid)
 
-    # 固定 ML-KEM 加密串
-    SERVER_DEC="$FIXED_ENC"
-    CLIENT_ENC="$FIXED_ENC"
+    # 5. ML-KEM 密钥（调用动态生成函数）
+    generate_mlkem
 
-    next=$(get_next_index)
-    tag_name="${PROTO}-${next}"
-    file="$CONF_DIR/$PROTO-$next.json"
+    # 6. 索引与文件名
+    local next=$(get_next_index)
+    local tag_name="${PROTO}-${next}"
+    local file="$CONF_DIR/$PROTO-$next.json"
 
-    # 构造 JSON
-    cat <<EOF > "$file"
-{
-  "inbounds": [
-    {
-      "listen": "$listen_ip",
-      "port": $lport,
-      "tag": "$tag_name",
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "$UUID",
-            "flow": ""
-          }
-        ],
-        "decryption": "$SERVER_DEC"
-      },
-      "streamSettings": {
-        "network": "tcp"
-      }
-    }
-  ]
-}
-EOF
+    # 7. 使用 jq 安全生成 JSON
+    jq -n \
+        --arg listen "$listen_ip" \
+        --argjson port "$lport" \
+        --arg tag "$tag_name" \
+        --arg uuid "$UUID" \
+        --arg dec "$SERVER_DEC" \
+        '{
+            inbounds: [{
+                listen: $listen,
+                port: $port,
+                tag: $tag,
+                protocol: "vless",
+                settings: {
+                    clients: [{id: $uuid}],
+                    decryption: $dec
+                },
+                streamSettings: {
+                    network: "tcp"
+                }
+            }]
+        }' > "$file"
 
-    # 验证生成的 JSON
+    # 8. 验证 JSON
     if ! jq empty "$file" 2>/dev/null; then
         print_error "生成的 JSON 无效，请检查！文件：$file"
         cat "$file" >&2
@@ -336,9 +346,13 @@ EOF
     print_ok "新增 ${PROTO_NAME} 配置成功"
     echo -e "编号: $next\n监听地址: $listen_ip\n端口: $lport\nUUID: $UUID\nTag: $tag_name" >&2
     echo >&2
+
+    # 9. 客户端链接（移除无效的 flow 参数，只保留必要参数）
     print_info "=== 客户端链接 ==="
-    echo "vless://${UUID}@${link_ip}:${lport}?type=tcp&encryption=${CLIENT_ENC}&flow=&#vless-tcp-mlkem" >&2
+    echo "vless://${UUID}@${link_ip}:${lport}?type=tcp&encryption=${CLIENT_ENC}#vless-tcp-mlkem" >&2
     echo >&2
+
+    # 10. YAML 示例
     print_info "=== YAML 客户端配置示例 ==="
     cat >&2 <<EOF
 - name: vless-tcp-mlkem-$next
@@ -348,8 +362,9 @@ EOF
   uuid: $UUID
   encryption: $CLIENT_ENC
   network: tcp
-
+  flow: ""   # TCP 无需 flow，可省略此行
 EOF
+    echo >&2
 }
 
 # ================================
@@ -361,9 +376,8 @@ delete_config() {
     printf "请输入要删除的编号: " >&2
     read num
     num=$(clean_input "$num")
-    num_fmt=$(printf "%02d" "$num")
-
-    file="$CONF_DIR/$PROTO-$num_fmt.json"
+    local num_fmt=$(printf "%02d" "$num")
+    local file="$CONF_DIR/$PROTO-$num_fmt.json"
 
     if [[ -f "$file" ]]; then
         rm -f "$file"
@@ -417,4 +431,7 @@ config_menu() {
     done
 }
 
+# ================================
+# 程序入口
+# ================================
 config_menu
