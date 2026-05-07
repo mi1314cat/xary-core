@@ -428,8 +428,7 @@ add_config() {
     local tag_name="${PROTO}${next}"
     local config_file="$CONF_DIR/$PROTO-$next.json"
 
-    # 使用 jq 动态生成完整 JSON 配置
-    # 所有变量均通过 --arg / --argjson 传递，路径等自动转义
+    # 使用 jq 生成 JSON
     jq -n \
       --arg listen "$listen_ip" \
       --argjson port "$lport" \
@@ -479,29 +478,61 @@ add_config() {
         ]
       }' > "$config_file"
 
-    # 验证 JSON 有效性（虽然 jq 生成的必然是合法 JSON，但仍做检查）
+    # JSON 验证
     if ! jq empty "$config_file" 2>/dev/null; then
-        print_error "生成的配置 JSON 无效，请联系开发者检查！"
+        print_error "生成的配置 JSON 无效，请检查！"
         exit 1
     fi
 
     print_ok "配置已生成: $config_file"
     echo -e "编号: $next\n监听: $listen_ip:$lport\nUUID: $UUID\n路径: $WS_PATH\nTLS: ${TLS_CERT:+已启用}" >&2
 
-    # 生成客户端分享链接（参数进行 URL 编码）
-    echo >&2
-    print_info "=== 客户端分享链接 ==="
-    local scheme="vless"
+    # ============================
+    #   保存客户端文件（优化版）
+    # ============================
+
+    mkdir -p /root/catmi/xray/out
+
+    # 客户端链接（URL 编码）
     local enc_path=$(urlencode "$WS_PATH")
     local enc_encryption=$(urlencode "$CLIENT_ENC")
     local params="type=xhttp&path=${enc_path}&encryption=${enc_encryption}"
+
     if [ -n "$TLS_CERT" ]; then
         local enc_sni=$(urlencode "${DOMAIN:-$PUBLIC_IP}")
         params+="&security=tls&sni=${enc_sni}"
     fi
-    echo "${scheme}://${UUID}@${link_ip}:${lport}?${params}#vless-xhttp-mlkem" >&2
 
-    # 生成 YAML 客户端示例
+    local link="vless://${UUID}@${link_ip}:${lport}?${params}#vless-xhttp-mlkem"
+
+    # ① 保存链接（按协议分类）
+    echo "[$next] $link" >> /root/catmi/xray/out/${PROTO}.txt
+
+    # ② 保存 YAML（按协议分类）
+cat >> /root/catmi/xray/out/${PROTO}.yaml <<EOF
+
+# [$next] vless-xhttp-mlkem-$next
+- name: vless-xhttp-mlkem-$next
+  type: vless
+  server: $PUBLIC_IP
+  port: $lport
+  uuid: $UUID
+  encryption: $CLIENT_ENC
+  network: xhttp
+  xhttp-opts:
+    path: $WS_PATH
+  tls: ${TLS_CERT:+true}
+  ${TLS_CERT:+sni: ${DOMAIN:-$PUBLIC_IP}}
+EOF
+
+    # ============================
+    #   控制台输出
+    # ============================
+
+    echo >&2
+    print_info "=== 客户端分享链接 ==="
+    echo "$link" >&2
+
     echo >&2
     print_info "=== YAML 客户端示例 ==="
     cat >&2 <<EOF
@@ -518,6 +549,7 @@ add_config() {
   ${TLS_CERT:+sni: ${DOMAIN:-$PUBLIC_IP}}
 EOF
 }
+
 
 # ================================
 # 删除配置
