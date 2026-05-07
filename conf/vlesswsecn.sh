@@ -236,7 +236,8 @@ add_config() {
 
     default_port=$(random_free_port)
     lport=$(safe_read_port "$default_port")
-     # 获取公网 IP 地址（容错）
+
+    # 获取公网 IP（IPv4/IPv6）
     PUBLIC_IP_V4=$(curl -s4 https://api.ipify.org || true)
     PUBLIC_IP_V6=$(curl -s6 https://api64.ipify.org || true)
 
@@ -248,17 +249,16 @@ add_config() {
     echo "请选择要使用的公网 IP 地址:"
     [ -n "$PUBLIC_IP_V4" ] && echo "1. IPv4: $PUBLIC_IP_V4"
     [ -n "$PUBLIC_IP_V6" ] && echo "2. IPv6: $PUBLIC_IP_V6"
-    read -p "请输入对应的数字选择 [默认1，若不可用则选择可用项]: " IP_CHOICE
+    read -p "请输入对应的数字选择 [默认1]: " IP_CHOICE
     IP_CHOICE=${IP_CHOICE:-1}
 
-    # 选择公网 IP 地址
     if [ "$IP_CHOICE" -eq 2 ] && [ -n "$PUBLIC_IP_V6" ]; then
         PUBLIC_IP="$PUBLIC_IP_V6"
     else
         PUBLIC_IP="${PUBLIC_IP_V4:-$PUBLIC_IP_V6}"
     fi
 
-    # IPv6 需要中括号，IPv4 不需要
+    # IPv6 需要中括号
     if [[ "$PUBLIC_IP" =~ : ]]; then
         link_ip="[$PUBLIC_IP]"
     else
@@ -307,14 +307,26 @@ EOF
     print_ok "新增 ${PROTO_NAME} 配置成功"
     echo -e "编号: $next\n监听地址: $listen_ip\n端口: $lport\nUUID: $UUID\nWS 路径: $WS_PATH1\nTag: $tag_name" >&2
     echo >&2
-    print_info "=== 客户端链接 ==="
-    echo "vless://${UUID}@${link_ip}:${lport}?type=ws&path=${WS_PATH1}&encryption=${CLIENT_ENC}#vless-ws-mlkem" >&2
-    echo >&2
-    print_info "=== YAML 客户端配置示例 ==="
-    cat >&2 <<EOF
+
+    # ============================
+    #   保存客户端文件（优化版）
+    # ============================
+
+    mkdir -p /root/catmi/xray/out
+
+    # 生成客户端链接
+    link="vless://${UUID}@${link_ip}:${lport}?type=ws&path=${WS_PATH1}&encryption=${CLIENT_ENC}#vless-ws-mlkem"
+
+    # ① 保存链接（按协议分类）
+    echo "[$next] $link" >> /root/catmi/xray/out/${PROTO}.txt
+
+    # ② 保存 YAML（按协议分类）
+cat >> /root/catmi/xray/out/${PROTO}.yaml <<EOF
+
+# [$next] vless-ws-mlkem-$next
 - name: vless-ws-mlkem-$next
   type: vless
-  server: PUBLIC_IP
+  server: $PUBLIC_IP
   port: $lport
   uuid: $UUID
   encryption: $CLIENT_ENC
@@ -322,7 +334,30 @@ EOF
   ws-opts:
     path: $WS_PATH1
 EOF
+
+    # ============================
+    #   控制台输出
+    # ============================
+
+    print_info "=== 客户端链接 ==="
+    echo "$link" >&2
+    echo >&2
+
+    print_info "=== YAML 客户端配置示例 ==="
+    cat >&2 <<EOF
+- name: vless-ws-mlkem-$next
+  type: vless
+  server: $PUBLIC_IP
+  port: $lport
+  uuid: $UUID
+  encryption: $CLIENT_ENC
+  network: ws
+  ws-opts:
+    path: $WS_PATH1
+EOF
+    echo >&2
 }
+
 
 # ================================
 # 删除配置
