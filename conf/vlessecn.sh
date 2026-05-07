@@ -305,7 +305,7 @@ add_config() {
     # 4. UUID
     local UUID=$(generate_uuid)
 
-    # 5. ML-KEM 密钥（调用动态生成函数）
+    # 5. ML-KEM 密钥
     generate_mlkem
 
     # 6. 索引与文件名
@@ -313,7 +313,7 @@ add_config() {
     local tag_name="${PROTO}-${next}"
     local file="$CONF_DIR/$PROTO-$next.json"
 
-    # 7. 使用 jq 安全生成 JSON
+    # 7. 使用 jq 生成 JSON
     jq -n \
         --arg listen "$listen_ip" \
         --argjson port "$lport" \
@@ -347,19 +347,21 @@ add_config() {
     echo -e "编号: $next\n监听地址: $listen_ip\n端口: $lport\nUUID: $UUID\nTag: $tag_name" >&2
     echo >&2
 
-# 确保目录存在
-mkdir -p /root/catmi/xray/out
+    # ============================
+    #   保存客户端文件（优化版）
+    # ============================
 
+    mkdir -p /root/catmi/xray/out
 
-    # 9. 客户端链接（移除无效的 flow 参数，只保留必要参数）
-    print_info "=== 客户端链接 ==="
-    link="vless://${UUID}@${link_ip}:${lport}?type=tcp&encryption=${CLIENT_ENC}#vless-tcp-mlkem" 
-    # 追加写入文件
-    echo "$link" >> /root/catmi/xray/out/${PROTO}.txt
+    # 客户端链接
+    local link="vless://${UUID}@${link_ip}:${lport}?type=tcp&encryption=${CLIENT_ENC}#vless-tcp-mlkem"
 
-    # 10. YAML 示例
-    print_info "=== YAML 客户端配置示例 ==="
-    cat >> /root/catmi/xray/out/${PROTO}.yaml <<EOF
+    # ① 保存链接（按协议分类）
+    echo "[$next] $link" >> /root/catmi/xray/out/${PROTO}.txt
+
+    # ② 保存 YAML（按协议分类）
+cat >> /root/catmi/xray/out/${PROTO}.yaml <<EOF
+
 # [$next] vless-tcp-mlkem-$next
 - name: vless-tcp-mlkem-$next
   type: vless
@@ -371,8 +373,28 @@ mkdir -p /root/catmi/xray/out
   flow: ""
 EOF
 
+    # ============================
+    #   控制台输出
+    # ============================
+
+    print_info "=== 客户端链接 ==="
+    echo "$link" >&2
+    echo >&2
+
+    print_info "=== YAML 客户端配置示例 ==="
+    cat >&2 <<EOF
+- name: vless-tcp-mlkem-$next
+  type: vless
+  server: $PUBLIC_IP
+  port: $lport
+  uuid: $UUID
+  encryption: $CLIENT_ENC
+  network: tcp
+  flow: ""
+EOF
     echo >&2
 }
+
 
 # ================================
 # 删除配置
