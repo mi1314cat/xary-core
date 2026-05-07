@@ -347,10 +347,15 @@ add_config() {
     echo -e "编号: $next\n监听地址: $listen_ip\n端口: $lport\nUUID: $UUID\nTag: $tag_name" >&2
     echo >&2
 
+# 确保目录存在
+mkdir -p /root/catmi/xray/out
+
+
     # 9. 客户端链接（移除无效的 flow 参数，只保留必要参数）
     print_info "=== 客户端链接 ==="
-    echo "vless://${UUID}@${link_ip}:${lport}?type=tcp&encryption=${CLIENT_ENC}#vless-tcp-mlkem" >&2
-    echo >&2
+    link="vless://${UUID}@${link_ip}:${lport}?type=tcp&encryption=${CLIENT_ENC}#vless-tcp-mlkem" 
+    # 追加写入文件
+    echo "$link" >> /root/catmi/xray/out/${PROTO_NAME}.txt
 
     # 10. YAML 示例
     print_info "=== YAML 客户端配置示例 ==="
