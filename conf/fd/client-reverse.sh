@@ -202,31 +202,69 @@ delete_config() {
 add_config() {
     print_title "新增反向代理客户端配置"
 
-    # 服务端信息录入
-    printf "请输入服务端 IP 或域名: " >&2
-    read SERVER_ADDR
-    SERVER_ADDR=$(clean_input "$SERVER_ADDR")
-    [[ -z "$SERVER_ADDR" ]] && { print_error "服务端地址不能为空"; return; }
+    local SERVER_ADDR SERVER_PORT UUID CLIENT_ENC
 
-    printf "请输入服务端 VLESS 端口: " >&2
-    read SERVER_PORT
-    SERVER_PORT=$(clean_input "$SERVER_PORT")
-    [[ -z "$SERVER_PORT" ]] && { print_error "服务端端口不能为空"; return; }
+    # 询问是否从服务端 VLESS 链接导入
+    printf "是否从服务端 VLESS 链接导入？(y/N): " >&2
+    read import_choice
+    import_choice=$(clean_input "$import_choice")
 
-    printf "请输入服务端 UUID: " >&2
-    read UUID
-    UUID=$(clean_input "$UUID")
-    [[ -z "$UUID" ]] && { print_error "UUID 不能为空"; return; }
+    if [[ "$import_choice" =~ ^[Yy]$ ]]; then
+        printf "请粘贴服务端提供的 VLESS 链接: " >&2
+        read vless_link
+        vless_link=$(clean_input "$vless_link")
 
-    printf "请输入服务端提供的 encryption (ML-KEM): " >&2
-    read CLIENT_ENC
-    CLIENT_ENC=$(clean_input "$CLIENT_ENC")
-    if [[ -z "$CLIENT_ENC" ]]; then
-        print_info "未输入 encryption，使用 fallback 值"
-        generate_mlkem
-        CLIENT_ENC="$FALLBACK_ENC"
+        # 解析 VLESS 链接格式: vless://uuid@address:port?encryption=xxx&flow=xxx...
+        if [[ "$vless_link" =~ vless://([^@]+)@([^:]+):([0-9]+)\?(.*) ]]; then
+            UUID="${BASH_REMATCH[1]}"
+            SERVER_ADDR="${BASH_REMATCH[2]}"
+            SERVER_PORT="${BASH_REMATCH[3]}"
+            params="${BASH_REMATCH[4]}"
+
+            # 提取 encryption 参数
+            CLIENT_ENC=$(echo "$params" | grep -oP 'encryption=\K[^&]+')
+            if [[ -z "$CLIENT_ENC" ]]; then
+                print_error "链接中未找到 encryption 参数，请检查"
+                return
+            fi
+
+            print_ok "成功解析服务端信息"
+            echo "  地址: $SERVER_ADDR" >&2
+            echo "  端口: $SERVER_PORT" >&2
+            echo "  UUID: $UUID" >&2
+            echo "  encryption: $CLIENT_ENC" >&2
+        else
+            print_error "链接格式不正确，请检查后重试"
+            return
+        fi
+    else
+        # 手动输入
+        printf "请输入服务端 IP 或域名: " >&2
+        read SERVER_ADDR
+        SERVER_ADDR=$(clean_input "$SERVER_ADDR")
+        [[ -z "$SERVER_ADDR" ]] && { print_error "服务端地址不能为空"; return; }
+
+        printf "请输入服务端 VLESS 端口: " >&2
+        read SERVER_PORT
+        SERVER_PORT=$(clean_input "$SERVER_PORT")
+        [[ -z "$SERVER_PORT" ]] && { print_error "服务端端口不能为空"; return; }
+
+        printf "请输入服务端 UUID: " >&2
+        read UUID
+        UUID=$(clean_input "$UUID")
+        [[ -z "$UUID" ]] && { print_error "UUID 不能为空"; return; }
+
+        printf "请输入服务端提供的 encryption (ML-KEM): " >&2
+        read CLIENT_ENC
+        CLIENT_ENC=$(clean_input "$CLIENT_ENC")
+        if [[ -z "$CLIENT_ENC" ]]; then
+            print_info "未输入 encryption，使用 fallback 值"
+            generate_mlkem
+            CLIENT_ENC="$FALLBACK_ENC"
+        fi
     fi
 
+    # 以下保持不变：选择本地监听地址、本地端口等
     local listen_ip=$(choose_listen_ip)
     local local_port=$(safe_read_port "$(random_free_port)")
     local next=$(get_next_index)
@@ -286,13 +324,9 @@ add_config() {
 
     print_ok "客户端配置已生成：$file"
 
-    # ============================
-    # 保存配置记录（用于管理）
-    # ============================
-    # 纯文本记录
+    # 保存记录（略，同原脚本）
     echo "[$next] 本地端口: $local_port | 服务端: $SERVER_ADDR:$SERVER_PORT | UUID: $UUID | encryption: $CLIENT_ENC" >> "$OUT_DIR/${PROTO}.txt"
 
-    # YAML 记录
     cat >> "$OUT_DIR/${PROTO}.yaml" <<EOF
 
 # [$next] reverse-client-${next}
@@ -309,9 +343,6 @@ reverse_in_tag: $reverse_in
 reverse_direct_tag: $reverse_direct
 EOF
 
-    # ============================
-    # 控制台输出
-    # ============================
     print_info "=== 客户端信息 ==="
     echo "编号: $next" >&2
     echo "监听地址: $listen_ip" >&2
