@@ -78,7 +78,7 @@ generate_uuid() {
 }
 
 # ================================
-# ML-KEM
+# ML-KEM（清理换行符）
 # ================================
 generate_mlkem() {
     if [ ! -x "$XRAYLS_BIN" ]; then
@@ -88,8 +88,8 @@ generate_mlkem() {
     fi
 
     local out=$("$XRAYLS_BIN" vlessenc 2>/dev/null)
-    SERVER_DEC=$(echo "$out" | grep -oP '"decryption"\s*:\s*"\K[^"]+')
-    CLIENT_ENC=$(echo "$out" | grep -oP '"encryption"\s*:\s*"\K[^"]+')
+    SERVER_DEC=$(echo "$out" | grep -oP '"decryption"\s*:\s*"\K[^"]+' | tr -d '\n\r')
+    CLIENT_ENC=$(echo "$out" | grep -oP '"encryption"\s*:\s*"\K[^"]+' | tr -d '\n\r')
 
     [[ -z "$SERVER_DEC" ]] && SERVER_DEC="$FALLBACK_ENC"
     [[ -z "$CLIENT_ENC" ]] && CLIENT_ENC="$FALLBACK_ENC"
@@ -114,7 +114,7 @@ get_next_index() {
 }
 
 # ================================
-# 监听地址选择（保留模板风格）
+# 监听地址选择
 # ================================
 choose_listen_ip() {
     echo "请选择监听地址：" >&2
@@ -175,11 +175,9 @@ list_configs() {
         [[ -f "$f" ]] || continue
 
         num=$(basename "$f" .json | cut -d'-' -f2)
-        # 提取第一个 inbound (vless)
         listen=$(jq -r '.inbounds[0].listen' "$f")
         vport=$(jq -r '.inbounds[0].port' "$f")
         uuid=$(jq -r '.inbounds[0].settings.clients[0].id' "$f")
-        # 提取第二个 inbound (socks portal)
         pport=$(jq -r '.inbounds[1].port' "$f")
         ptag=$(jq -r '.inbounds[1].tag' "$f")
 
@@ -203,12 +201,11 @@ delete_config() {
 
     if [[ -f "$file" ]]; then
         rm -f "$file"
-        # 同步删除客户端记录文件中与该编号相关的条目（简单按行过滤，避免残留）
+        # 清理客户端记录文件
         if [[ -f "$OUT_DIR/${PROTO}.txt" ]]; then
             sed -i "/^\[$num_fmt\] /d" "$OUT_DIR/${PROTO}.txt" 2>/dev/null
         fi
         if [[ -f "$OUT_DIR/${PROTO}.yaml" ]]; then
-            # 删除 YAML 中以 # [$num_fmt] 开头到下一个空行或 --- 之间的块（简单做法：按段落删除）
             awk -v num="$num_fmt" '
                 BEGIN { skip=0 }
                 /^# \['"$num_fmt"'\]/ { skip=1; next }
@@ -219,48 +216,6 @@ delete_config() {
         print_ok "已删除编号 $num_fmt 的 ${PROTO_NAME} 配置及客户端记录"
     else
         print_error "编号 $num_fmt 不存在"
-    fi
-}
-
-# ================================
-# 显示所有客户端链接（从 out 文件读取）
-# ================================
-show_vless_links() {
-    print_title "客户端 VLESS 链接"
-
-    local link_file="$OUT_DIR/${PROTO}.txt"
-    if [[ ! -f "$link_file" ]]; then
-        print_error "未找到链接文件: $link_file"
-        return
-    fi
-
-    echo -e "${CYAN}编号 | VLESS 链接${RESET}" >&2
-    echo "--------------------------------------------------------------------------------------------------------" >&2
-
-    while IFS= read -r line; do
-        if [[ "$line" =~ ^\[([0-9]+)\]\ (vless://.*) ]]; then
-            num="${BASH_REMATCH[1]}"
-            link="${BASH_REMATCH[2]}"
-            echo -e "${GREEN}$num${RESET}) ${YELLOW}$link${RESET}" >&2
-        fi
-    done < "$link_file"
-
-    echo "--------------------------------------------------------------------------------------------------------" >&2
-    printf "请输入要复制的编号 (0 返回): " >&2
-    read num
-    num=$(clean_input "$num")
-    [[ "$num" == "0" ]] && return
-
-    # 提取对应链接并输出（方便复制）
-    local target_link=$(grep "^\[$num\]" "$link_file" | sed 's/^\[[0-9]*\] //')
-    if [[ -n "$target_link" ]]; then
-        echo >&2
-        print_ok "请复制以下 VLESS 链接到客户端："
-        echo -e "${GREEN}${target_link}${RESET}" >&2
-        # 额外输出到 stdout，便于重定向捕获
-        echo "$target_link"
-    else
-        print_error "编号 $num 不存在"
     fi
 }
 
@@ -334,7 +289,6 @@ add_config() {
     # ============================
     # 生成客户端链接并保存
     # ============================
-    # 获取公网 IP（用于客户端连接）
     PUBLIC_IP=$(get_public_ip)
     if [[ "$PUBLIC_IP" =~ : ]]; then
         link_ip="[$PUBLIC_IP]"
@@ -342,13 +296,12 @@ add_config() {
         link_ip="$PUBLIC_IP"
     fi
 
-    # VLESS 链接
-    link="vless://${UUID}@${link_ip}:${vless_port}?encryption=${CLIENT_ENC}&flow=xtls-rprx-vision&type=tcp#reverse-server-${next}"
+    # 确保 encryption 无换行符
+    CLEAN_ENC=$(echo "$CLIENT_ENC" | tr -d '\n\r')
+    link="vless://${UUID}@${link_ip}:${vless_port}?encryption=${CLEAN_ENC}&flow=xtls-rprx-vision&type=tcp#reverse-server-${next}"
 
-    # 保存纯文本
     echo "[$next] $link" >> "$OUT_DIR/${PROTO}.txt"
 
-    # 保存 YAML
     cat >> "$OUT_DIR/${PROTO}.yaml" <<EOF
 
 # [$next] reverse-server-${next}
@@ -357,7 +310,7 @@ add_config() {
   server: $PUBLIC_IP
   port: $vless_port
   uuid: $UUID
-  encryption: $CLIENT_ENC
+  encryption: $CLEAN_ENC
   flow: xtls-rprx-vision
   network: tcp
 EOF
@@ -371,7 +324,7 @@ EOF
     echo "VLESS 端口: $vless_port" >&2
     echo "Portal 端口: $portal_port" >&2
     echo "UUID: $UUID" >&2
-    echo "客户端 encryption: $CLIENT_ENC" >&2
+    echo "客户端 encryption: $CLEAN_ENC" >&2
     echo "Portal Tag: $portal_tag" >&2
     echo "Reverse Tag: $reverse_tag" >&2
     echo >&2
@@ -387,11 +340,78 @@ EOF
   server: $PUBLIC_IP
   port: $vless_port
   uuid: $UUID
-  encryption: $CLIENT_ENC
+  encryption: $CLEAN_ENC
   flow: xtls-rprx-vision
   network: tcp
 EOF
     echo >&2
+}
+
+# ================================
+# 显示客户端链接（简洁列表 + 智能编号）
+# ================================
+show_vless_links() {
+    print_title "客户端 VLESS 链接"
+
+    local link_file="$OUT_DIR/${PROTO}.txt"
+    if [[ ! -f "$link_file" ]]; then
+        print_error "未找到链接文件: $link_file"
+        return
+    fi
+
+    local -a nums links
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^\[([0-9]+)\]\ (vless://.*) ]]; then
+            nums+=("${BASH_REMATCH[1]}")
+            links+=("${BASH_REMATCH[2]}")
+        fi
+    done < "$link_file"
+
+    if [ ${#nums[@]} -eq 0 ]; then
+        print_error "没有找到任何客户端链接"
+        return
+    fi
+
+    # 显示简洁列表
+    echo -e "${CYAN}编号 | 端口 | UUID（前8位）${RESET}" >&2
+    echo "----------------------------------------" >&2
+    for i in "${!nums[@]}"; do
+        local num="${nums[$i]}"
+        local link="${links[$i]}"
+        local port=$(echo "$link" | grep -oP ':[0-9]+' | head -1 | cut -d':' -f2)
+        local uuid_pre=$(echo "$link" | grep -oP 'vless://\K[^@]+' | head -1 | cut -c1-8)
+        echo -e "${GREEN}$num${RESET})   ${CYAN}$port${RESET}   ${YELLOW}${uuid_pre}...${RESET}" >&2
+    done
+    echo "----------------------------------------" >&2
+
+    printf "请输入要复制的编号 (0 返回): " >&2
+    read input_num
+    input_num=$(clean_input "$input_num")
+    [[ "$input_num" == "0" ]] && return
+
+    # 智能编号补零
+    if [[ "$input_num" =~ ^[0-9]+$ ]]; then
+        if (( input_num < 10 )); then
+            input_num="0$input_num"
+        fi
+    fi
+
+    local target_link=""
+    for i in "${!nums[@]}"; do
+        if [[ "${nums[$i]}" == "$input_num" ]]; then
+            target_link="${links[$i]}"
+            break
+        fi
+    done
+
+    if [[ -n "$target_link" ]]; then
+        echo >&2
+        print_ok "请复制以下 VLESS 链接到客户端："
+        echo -e "${GREEN}${target_link}${RESET}" >&2
+        echo "$target_link"
+    else
+        print_error "编号 $input_num 不存在"
+    fi
 }
 
 # ================================
@@ -403,22 +423,43 @@ menu() {
         echo "1) 查看所有配置" >&2
         echo "2) 新增配置" >&2
         echo "3) 删除配置" >&2
-        echo "4) 显示客户端链接" >&2   # 新增
+        echo "4) 显示客户端链接" >&2
         echo "0) 退出" >&2
         printf "请选择: " >&2
         read c
         c=$(clean_input "$c")
 
         case $c in
-            1) list_configs ;;
-            2) add_config ;;
-            3) delete_config ;;
-            4) show_vless_links ;;   # 新增
-            0) exit 0 ;;
-            *) print_error "无效选项" ;;
+            1)
+                list_configs
+                printf "按回车继续..." >&2
+                read
+                ;;
+            2)
+                add_config
+                printf "按回车继续..." >&2
+                read
+                ;;
+            3)
+                delete_config
+                printf "按回车继续..." >&2
+                read
+                ;;
+            4)
+                show_vless_links
+                printf "按回车继续..." >&2
+                read
+                ;;
+            0)
+                echo "退出" >&2
+                exit 0
+                ;;
+            *)
+                print_error "无效选项"
+                printf "按回车继续..." >&2
+                read
+                ;;
         esac
-        printf "按回车继续..." >&2
-        read
     done
 }
 
