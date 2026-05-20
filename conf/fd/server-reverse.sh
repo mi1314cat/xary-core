@@ -223,6 +223,48 @@ delete_config() {
 }
 
 # ================================
+# 显示所有客户端链接（从 out 文件读取）
+# ================================
+show_vless_links() {
+    print_title "客户端 VLESS 链接"
+
+    local link_file="$OUT_DIR/${PROTO}.txt"
+    if [[ ! -f "$link_file" ]]; then
+        print_error "未找到链接文件: $link_file"
+        return
+    fi
+
+    echo -e "${CYAN}编号 | VLESS 链接${RESET}" >&2
+    echo "--------------------------------------------------------------------------------------------------------" >&2
+
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^\[([0-9]+)\]\ (vless://.*) ]]; then
+            num="${BASH_REMATCH[1]}"
+            link="${BASH_REMATCH[2]}"
+            echo -e "${GREEN}$num${RESET}) ${YELLOW}$link${RESET}" >&2
+        fi
+    done < "$link_file"
+
+    echo "--------------------------------------------------------------------------------------------------------" >&2
+    printf "请输入要复制的编号 (0 返回): " >&2
+    read num
+    num=$(clean_input "$num")
+    [[ "$num" == "0" ]] && return
+
+    # 提取对应链接并输出（方便复制）
+    local target_link=$(grep "^\[$num\]" "$link_file" | sed 's/^\[[0-9]*\] //')
+    if [[ -n "$target_link" ]]; then
+        echo >&2
+        print_ok "请复制以下 VLESS 链接到客户端："
+        echo -e "${GREEN}${target_link}${RESET}" >&2
+        # 额外输出到 stdout，便于重定向捕获
+        echo "$target_link"
+    else
+        print_error "编号 $num 不存在"
+    fi
+}
+
+# ================================
 # 新增配置
 # ================================
 add_config() {
@@ -361,37 +403,22 @@ menu() {
         echo "1) 查看所有配置" >&2
         echo "2) 新增配置" >&2
         echo "3) 删除配置" >&2
+        echo "4) 显示客户端链接" >&2   # 新增
         echo "0) 退出" >&2
         printf "请选择: " >&2
         read c
         c=$(clean_input "$c")
 
         case $c in
-            1)
-                list_configs
-                printf "按回车继续..." >&2
-                read
-                ;;
-            2)
-                add_config
-                printf "按回车继续..." >&2
-                read
-                ;;
-            3)
-                delete_config
-                printf "按回车继续..." >&2
-                read
-                ;;
-            0)
-                echo "退出" >&2
-                exit 0
-                ;;
-            *)
-                print_error "无效选项"
-                printf "按回车继续..." >&2
-                read
-                ;;
+            1) list_configs ;;
+            2) add_config ;;
+            3) delete_config ;;
+            4) show_vless_links ;;   # 新增
+            0) exit 0 ;;
+            *) print_error "无效选项" ;;
         esac
+        printf "按回车继续..." >&2
+        read
     done
 }
 
