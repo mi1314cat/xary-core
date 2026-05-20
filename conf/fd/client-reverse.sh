@@ -29,7 +29,7 @@ print_title() {
 # 基础变量
 # ================================
 PROTO="reverse-client"
-PROTO_NAME="Xray Reverse Client"
+PROTO_NAME="Xray Reverse Client (WS)"
 CONF_DIR="/root/catmi/xray/conf"
 OUT_DIR="/root/catmi/xray/out"
 XRAYLS_BIN="/root/catmi/xray/xrayls"
@@ -78,7 +78,7 @@ generate_uuid() {
 }
 
 # ================================
-# ML-KEM（仅用于获取默认值）
+# ML-KEM（仅用于 fallback）
 # ================================
 generate_mlkem() {
     if [ ! -x "$XRAYLS_BIN" ]; then
@@ -88,15 +88,15 @@ generate_mlkem() {
     fi
 
     local out=$("$XRAYLS_BIN" vlessenc 2>/dev/null)
-    SERVER_DEC=$(echo "$out" | grep -oP '"decryption"\s*:\s*"\K[^"]+')
-    CLIENT_ENC=$(echo "$out" | grep -oP '"encryption"\s*:\s*"\K[^"]+')
+    SERVER_DEC=$(echo "$out" | grep -oP '"decryption"\s*:\s*"\K[^"]+' | tr -d '\n\r')
+    CLIENT_ENC=$(echo "$out" | grep -oP '"encryption"\s*:\s*"\K[^"]+' | tr -d '\n\r')
 
     [[ -z "$SERVER_DEC" ]] && SERVER_DEC="$FALLBACK_ENC"
     [[ -z "$CLIENT_ENC" ]] && CLIENT_ENC="$FALLBACK_ENC"
 }
 
 # ================================
-# 自动编号（01、02、03…）
+# 自动编号
 # ================================
 get_next_index() {
     local used=() i=1 f base
@@ -139,28 +139,32 @@ choose_listen_ip() {
 list_configs() {
     print_title "当前 ${PROTO_NAME} 配置列表"
 
-    echo -e "${CYAN}编号 | 监听地址 | 本地端口 | 服务端地址 | 服务端端口 | UUID | Encryption${RESET}" >&2
-    echo "--------------------------------------------------------------------------------------------------------" >&2
+    echo -e "${CYAN}编号 | 监听地址 | 本地端口 | 服务端地址 | 服务端端口 | UUID | WS路径 | Encryption${RESET}" >&2
+    echo "----------------------------------------------------------------------------------------------------------------" >&2
 
     shopt -s nullglob
     for f in "$CONF_DIR"/${PROTO}-*.json; do
         [[ -f "$f" ]] || continue
 
-        num=$(basename "$f" .json | cut -d'-' -f2)
+        base=$(basename "$f")
+        if [[ "$base" =~ ${PROTO}-([0-9]+)\.json ]]; then
+            num="${BASH_REMATCH[1]}"
+        else
+            continue
+        fi
 
-        # 提取入站信息
         listen=$(jq -r '.inbounds[0].listen' "$f")
         local_port=$(jq -r '.inbounds[0].port' "$f")
+        # 从第一个出站（vless）中提取
+        server_addr=$(jq -r '.outbounds[0].settings.address' "$f")
+        server_port=$(jq -r '.outbounds[0].settings.port' "$f")
+        uuid=$(jq -r '.outbounds[0].settings.id' "$f")
+        encryption=$(jq -r '.outbounds[0].settings.encryption' "$f")
+        ws_path=$(jq -r '.outbounds[0].streamSettings.wsSettings.path // "未设置"' "$f")
 
-        # 提取出站中 vless 协议的信息
-        server_addr=$(jq -r '.outbounds[] | select(.protocol=="vless") | .settings.address' "$f")
-        server_port=$(jq -r '.outbounds[] | select(.protocol=="vless") | .settings.port' "$f")
-        uuid=$(jq -r '.outbounds[] | select(.protocol=="vless") | .settings.id' "$f")
-        encryption=$(jq -r '.outbounds[] | select(.protocol=="vless") | .settings.encryption' "$f")
-
-        echo -e "${GREEN}$num${RESET}) ${YELLOW}$listen${RESET} | ${CYAN}$local_port${RESET} | ${WHITE}$server_addr${RESET} | ${CYAN}$server_port${RESET} | ${MAGENTA}$uuid${RESET} | ${BLUE}$encryption${RESET}" >&2
+        echo -e "${GREEN}$num${RESET}) ${YELLOW}$listen${RESET} | ${CYAN}$local_port${RESET} | ${WHITE}$server_addr${RESET} | ${CYAN}$server_port${RESET} | ${MAGENTA}$uuid${RESET} | ${BLUE}$ws_path${RESET} | ${GREEN}$encryption${RESET}" >&2
     done
-    echo "--------------------------------------------------------------------------------------------------------" >&2
+    echo "----------------------------------------------------------------------------------------------------------------" >&2
 }
 
 # ================================
@@ -178,7 +182,6 @@ delete_config() {
 
     if [[ -f "$file" ]]; then
         rm -f "$file"
-        # 同步删除客户端记录文件中与该编号相关的条目
         if [[ -f "$OUT_DIR/${PROTO}.txt" ]]; then
             sed -i "/^\[$num_fmt\] /d" "$OUT_DIR/${PROTO}.txt" 2>/dev/null
         fi
@@ -197,12 +200,12 @@ delete_config() {
 }
 
 # ================================
-# 新增配置
+# 新增配置（WebSocket）
 # ================================
 add_config() {
-    print_title "新增反向代理客户端配置"
+    print_title "新增反向代理客户端配置 (WebSocket)"
 
-    local SERVER_ADDR SERVER_PORT UUID CLIENT_ENC
+    local SERVER_ADDR SERVER_PORT UUID CLIENT_ENC WS_PATH
 
     # 询问是否从服务端 VLESS 链接导入
     printf "是否从服务端 VLESS 链接导入？(y/N): " >&2
@@ -214,17 +217,26 @@ add_config() {
         read vless_link
         vless_link=$(clean_input "$vless_link")
 
-        # 解析 VLESS 链接格式: vless://uuid@address:port?encryption=xxx&flow=xxx...
+        # 解析 vless://uuid@address:port?encryption=xxx&flow=xxx&type=ws&path=/xxx
         if [[ "$vless_link" =~ vless://([^@]+)@([^:]+):([0-9]+)\?(.*) ]]; then
             UUID="${BASH_REMATCH[1]}"
             SERVER_ADDR="${BASH_REMATCH[2]}"
             SERVER_PORT="${BASH_REMATCH[3]}"
             params="${BASH_REMATCH[4]}"
 
-            # 提取 encryption 参数
+            # 提取 encryption
             CLIENT_ENC=$(echo "$params" | grep -oP 'encryption=\K[^&]+')
+            # 提取 path
+            WS_PATH=$(echo "$params" | grep -oP 'path=\K[^&]+')
+            # 提取 flow（可选）
+            # flow=$(echo "$params" | grep -oP 'flow=\K[^&]+')
+
             if [[ -z "$CLIENT_ENC" ]]; then
                 print_error "链接中未找到 encryption 参数，请检查"
+                return
+            fi
+            if [[ -z "$WS_PATH" ]]; then
+                print_error "链接中未找到 path 参数 (WebSocket 路径)"
                 return
             fi
 
@@ -233,6 +245,7 @@ add_config() {
             echo "  端口: $SERVER_PORT" >&2
             echo "  UUID: $UUID" >&2
             echo "  encryption: $CLIENT_ENC" >&2
+            echo "  WebSocket 路径: $WS_PATH" >&2
         else
             print_error "链接格式不正确，请检查后重试"
             return
@@ -262,9 +275,14 @@ add_config() {
             generate_mlkem
             CLIENT_ENC="$FALLBACK_ENC"
         fi
+
+        printf "请输入服务端 WebSocket 路径 (如 /abc123): " >&2
+        read WS_PATH
+        WS_PATH=$(clean_input "$WS_PATH")
+        [[ -z "$WS_PATH" ]] && { print_error "WebSocket 路径不能为空"; return; }
+        [[ "$WS_PATH" != /* ]] && WS_PATH="/$WS_PATH"
     fi
 
-    # 以下保持不变：选择本地监听地址、本地端口等
     local listen_ip=$(choose_listen_ip)
     local local_port=$(safe_read_port "$(random_free_port)")
     local next=$(get_next_index)
@@ -283,6 +301,7 @@ add_config() {
         --arg enc "$CLIENT_ENC" \
         --arg rin "$reverse_in" \
         --arg rout "$reverse_direct" \
+        --arg path "$WS_PATH" \
         '{
             inbounds: [
                 {
@@ -304,6 +323,12 @@ add_config() {
                         encryption: $enc,
                         flow: "xtls-rprx-vision",
                         reverse: { tag: $rin }
+                    },
+                    streamSettings: {
+                        network: "ws",
+                        wsSettings: {
+                            path: $path
+                        }
                     }
                 },
                 {
@@ -324,8 +349,8 @@ add_config() {
 
     print_ok "客户端配置已生成：$file"
 
-    # 保存记录（略，同原脚本）
-    echo "[$next] 本地端口: $local_port | 服务端: $SERVER_ADDR:$SERVER_PORT | UUID: $UUID | encryption: $CLIENT_ENC" >> "$OUT_DIR/${PROTO}.txt"
+    # 保存记录
+    echo "[$next] 本地端口: $local_port | 服务端: $SERVER_ADDR:$SERVER_PORT | UUID: $UUID | WS路径: $WS_PATH | encryption: $CLIENT_ENC" >> "$OUT_DIR/${PROTO}.txt"
 
     cat >> "$OUT_DIR/${PROTO}.yaml" <<EOF
 
@@ -339,6 +364,9 @@ server_port: $SERVER_PORT
 uuid: $UUID
 encryption: $CLIENT_ENC
 flow: xtls-rprx-vision
+network: ws
+ws-opts:
+  path: $WS_PATH
 reverse_in_tag: $reverse_in
 reverse_direct_tag: $reverse_direct
 EOF
@@ -350,6 +378,7 @@ EOF
     echo "服务端地址: $SERVER_ADDR" >&2
     echo "服务端端口: $SERVER_PORT" >&2
     echo "UUID: $UUID" >&2
+    echo "WebSocket 路径: $WS_PATH" >&2
     echo "encryption: $CLIENT_ENC" >&2
     echo "Reverse-In Tag: $reverse_in" >&2
     echo "Reverse-Direct Tag: $reverse_direct" >&2
@@ -362,7 +391,7 @@ EOF
 # ================================
 menu() {
     while true; do
-        print_title "反向代理客户端管理"
+        print_title "反向代理客户端管理 (WebSocket)"
         echo "1) 查看所有配置" >&2
         echo "2) 新增配置" >&2
         echo "3) 删除配置" >&2
