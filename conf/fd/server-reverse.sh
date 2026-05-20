@@ -29,7 +29,7 @@ print_title() {
 # 基础变量
 # ================================
 PROTO="reverse-server"
-PROTO_NAME="Xray Reverse Server"
+PROTO_NAME="Xray Reverse Server (WS)"
 CONF_DIR="/root/catmi/xray/conf"
 OUT_DIR="/root/catmi/xray/out"
 XRAYLS_BIN="/root/catmi/xray/xrayls"
@@ -37,6 +37,11 @@ XRAYLS_BIN="/root/catmi/xray/xrayls"
 FALLBACK_ENC="mlkem768x25519plus.native.600s.OEYSQhMul9UVxme8omvFtznEWqQViMIEORBJp0fVKekmjMwzBj1NwCikhruSYboDfvnnCS2XTXjWOv1W7PAw4w"
 
 mkdir -p "$CONF_DIR" "$OUT_DIR"
+
+# ================================
+# 随机路径（用于 WebSocket）
+# ================================
+random_path() { echo "/$(tr -dc A-Za-z0-9 </dev/urandom | head -c 8)"; }
 
 # ================================
 # 随机端口及工具
@@ -167,23 +172,30 @@ get_public_ip() {
 list_configs() {
     print_title "当前 ${PROTO_NAME} 配置列表"
 
-    echo -e "${CYAN}编号 | 监听地址 | VLESS端口 | Portal端口 | UUID | Portal Tag${RESET}" >&2
-    echo "--------------------------------------------------------------------------------" >&2
+    echo -e "${CYAN}编号 | 监听地址 | VLESS端口 | Portal端口 | UUID | WS路径 | Portal Tag${RESET}" >&2
+    echo "------------------------------------------------------------------------------------------------" >&2
 
     shopt -s nullglob
     for f in "$CONF_DIR"/${PROTO}-*.json; do
         [[ -f "$f" ]] || continue
 
-        num=$(basename "$f" .json | cut -d'-' -f2)
+        base=$(basename "$f")
+        if [[ "$base" =~ ${PROTO}-([0-9]+)\.json ]]; then
+            num="${BASH_REMATCH[1]}"
+        else
+            continue
+        fi
+
         listen=$(jq -r '.inbounds[0].listen' "$f")
         vport=$(jq -r '.inbounds[0].port' "$f")
         uuid=$(jq -r '.inbounds[0].settings.clients[0].id' "$f")
         pport=$(jq -r '.inbounds[1].port' "$f")
         ptag=$(jq -r '.inbounds[1].tag' "$f")
+        wspath=$(jq -r '.inbounds[0].streamSettings.wsSettings.path // "未设置"' "$f")
 
-        echo -e "${GREEN}$num${RESET}) ${YELLOW}$listen${RESET} | ${CYAN}$vport${RESET} | ${CYAN}$pport${RESET} | ${MAGENTA}$uuid${RESET} | ${WHITE}$ptag${RESET}" >&2
+        echo -e "${GREEN}$num${RESET}) ${YELLOW}$listen${RESET} | ${CYAN}$vport${RESET} | ${CYAN}$pport${RESET} | ${MAGENTA}$uuid${RESET} | ${BLUE}$wspath${RESET} | ${WHITE}$ptag${RESET}" >&2
     done
-    echo "--------------------------------------------------------------------------------" >&2
+    echo "------------------------------------------------------------------------------------------------" >&2
 }
 
 # ================================
@@ -201,7 +213,7 @@ delete_config() {
 
     if [[ -f "$file" ]]; then
         rm -f "$file"
-        # 清理客户端记录文件
+        rm -f "$OUT_DIR/${PROTO}-${num_fmt}.link"
         if [[ -f "$OUT_DIR/${PROTO}.txt" ]]; then
             sed -i "/^\[$num_fmt\] /d" "$OUT_DIR/${PROTO}.txt" 2>/dev/null
         fi
@@ -220,10 +232,10 @@ delete_config() {
 }
 
 # ================================
-# 新增配置
+# 新增配置（WebSocket）
 # ================================
 add_config() {
-    print_title "新增反向代理服务端配置"
+    print_title "新增反向代理服务端配置 (WebSocket)"
 
     local listen_ip=$(choose_listen_ip)
     local vless_port=$(safe_read_port "$(random_free_port)")
@@ -233,6 +245,14 @@ add_config() {
 
     local portal_tag="portal-${next}"
     local reverse_tag="reverse-out-${next}"
+
+    # WebSocket 路径
+    default_path=$(random_path)
+    printf "请输入 WebSocket 路径 (默认 %s): " "$default_path" >&2
+    read ws_path
+    ws_path=$(clean_input "$ws_path")
+    [[ -z "$ws_path" ]] && ws_path="$default_path"
+    [[ "$ws_path" != /* ]] && ws_path="/$ws_path"
 
     generate_mlkem
 
@@ -246,6 +266,7 @@ add_config() {
         --arg dec "$SERVER_DEC" \
         --arg portal "$portal_tag" \
         --arg rev "$reverse_tag" \
+        --arg path "$ws_path" \
         '{
             inbounds: [
                 {
@@ -261,6 +282,12 @@ add_config() {
                                 reverse: { tag: $rev }
                             }
                         ]
+                    },
+                    streamSettings: {
+                        network: "ws",
+                        wsSettings: {
+                            path: $path
+                        }
                     }
                 },
                 {
@@ -296,11 +323,12 @@ add_config() {
         link_ip="$PUBLIC_IP"
     fi
 
-    # 确保 encryption 无换行符
     CLEAN_ENC=$(echo "$CLIENT_ENC" | tr -d '\n\r')
-    link="vless://${UUID}@${link_ip}:${vless_port}?encryption=${CLEAN_ENC}&flow=xtls-rprx-vision&type=tcp#reverse-server-${next}"
+    # 注意：flow 在 WebSocket 下通常无效，但保留不影响连接；可以移除 flow 参数，这里保持原有风格
+    link="vless://${UUID}@${link_ip}:${vless_port}?encryption=${CLEAN_ENC}&flow=xtls-rprx-vision&type=ws&path=${ws_path}#reverse-server-${next}"
 
     echo "[$next] $link" >> "$OUT_DIR/${PROTO}.txt"
+    echo "$link" > "$OUT_DIR/${PROTO}-${next}.link"
 
     cat >> "$OUT_DIR/${PROTO}.yaml" <<EOF
 
@@ -312,18 +340,18 @@ add_config() {
   uuid: $UUID
   encryption: $CLEAN_ENC
   flow: xtls-rprx-vision
-  network: tcp
+  network: ws
+  ws-opts:
+    path: $ws_path
 EOF
 
-    # ============================
-    # 控制台输出
-    # ============================
     print_info "=== 服务端信息 ==="
     echo "编号: $next" >&2
     echo "监听地址: $listen_ip" >&2
     echo "VLESS 端口: $vless_port" >&2
     echo "Portal 端口: $portal_port" >&2
     echo "UUID: $UUID" >&2
+    echo "WebSocket 路径: $ws_path" >&2
     echo "客户端 encryption: $CLEAN_ENC" >&2
     echo "Portal Tag: $portal_tag" >&2
     echo "Reverse Tag: $reverse_tag" >&2
@@ -342,16 +370,18 @@ EOF
   uuid: $UUID
   encryption: $CLEAN_ENC
   flow: xtls-rprx-vision
-  network: tcp
+  network: ws
+  ws-opts:
+    path: $ws_path
 EOF
     echo >&2
 }
 
 # ================================
-# 显示客户端链接（简洁列表 + 智能编号）
+# 显示客户端链接（同前，直接 cat .link 文件）
 # ================================
 show_vless_links() {
-    print_title "客户端 VLESS 链接"
+    print_title "客户端 VLESS 链接 (WebSocket)"
 
     local link_file="$OUT_DIR/${PROTO}.txt"
     if [[ ! -f "$link_file" ]]; then
@@ -359,11 +389,16 @@ show_vless_links() {
         return
     fi
 
-    local -a nums links
+    local -a nums ports uuid_pre
     while IFS= read -r line; do
         if [[ "$line" =~ ^\[([0-9]+)\]\ (vless://.*) ]]; then
-            nums+=("${BASH_REMATCH[1]}")
-            links+=("${BASH_REMATCH[2]}")
+            local num="${BASH_REMATCH[1]}"
+            local link="${BASH_REMATCH[2]}"
+            nums+=("$num")
+            local port=$(echo "$link" | grep -oP ':\K[0-9]+(?=\?)' | head -1)
+            local uuid_head=$(echo "$link" | grep -oP 'vless://\K[^@]+' | head -1 | cut -c1-8)
+            ports+=("$port")
+            uuid_pre+=("$uuid_head")
         fi
     done < "$link_file"
 
@@ -372,45 +407,31 @@ show_vless_links() {
         return
     fi
 
-    # 显示简洁列表
-    echo -e "${CYAN}编号 | 端口 | UUID（前8位）${RESET}" >&2
+    echo -e "${CYAN}编号 | VLESS端口 | UUID（前8位）${RESET}" >&2
     echo "----------------------------------------" >&2
     for i in "${!nums[@]}"; do
-        local num="${nums[$i]}"
-        local link="${links[$i]}"
-        local port=$(echo "$link" | grep -oP ':[0-9]+' | head -1 | cut -d':' -f2)
-        local uuid_pre=$(echo "$link" | grep -oP 'vless://\K[^@]+' | head -1 | cut -c1-8)
-        echo -e "${GREEN}$num${RESET})   ${CYAN}$port${RESET}   ${YELLOW}${uuid_pre}...${RESET}" >&2
+        echo -e "${GREEN}${nums[$i]}${RESET})   ${CYAN}${ports[$i]}${RESET}   ${YELLOW}${uuid_pre[$i]}...${RESET}" >&2
     done
     echo "----------------------------------------" >&2
 
-    printf "请输入要复制的编号 (0 返回): " >&2
+    printf "请输入要查看的编号 (0 返回): " >&2
     read input_num
     input_num=$(clean_input "$input_num")
     [[ "$input_num" == "0" ]] && return
 
-    # 智能编号补零
-    if [[ "$input_num" =~ ^[0-9]+$ ]]; then
-        if (( input_num < 10 )); then
-            input_num="0$input_num"
-        fi
+    if [[ "$input_num" =~ ^[0-9]+$ ]] && (( input_num < 10 )); then
+        input_num="0$input_num"
     fi
 
-    local target_link=""
-    for i in "${!nums[@]}"; do
-        if [[ "${nums[$i]}" == "$input_num" ]]; then
-            target_link="${links[$i]}"
-            break
-        fi
-    done
-
-    if [[ -n "$target_link" ]]; then
+    local link_file_indiv="$OUT_DIR/${PROTO}-${input_num}.link"
+    if [[ -f "$link_file_indiv" ]]; then
         echo >&2
-        print_ok "请复制以下 VLESS 链接到客户端："
-        echo -e "${GREEN}${target_link}${RESET}" >&2
-        echo "$target_link"
+        print_ok "完整 VLESS 链接（单行，直接复制）:" >&2
+        cat "$link_file_indiv"
+        echo >&2
+        print_info "链接已保存至: $link_file_indiv" >&2
     else
-        print_error "编号 $input_num 不存在"
+        print_error "编号 $input_num 不存在或链接文件缺失"
     fi
 }
 
@@ -419,7 +440,7 @@ show_vless_links() {
 # ================================
 menu() {
     while true; do
-        print_title "反向代理服务端管理"
+        print_title "反向代理服务端管理 (WebSocket)"
         echo "1) 查看所有配置" >&2
         echo "2) 新增配置" >&2
         echo "3) 删除配置" >&2
