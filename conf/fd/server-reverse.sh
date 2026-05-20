@@ -1,0 +1,398 @@
+#!/bin/bash
+
+# ================================
+# 依赖检查
+# ================================
+if ! command -v jq &>/dev/null; then
+    echo -e "\e[31m[ERROR]\e[0m 需要安装 jq，请执行: apt install -y jq 或 yum install -y jq"
+    exit 1
+fi
+
+# ================================
+# 彩色定义
+# ================================
+RED="\e[31m"; GREEN="\e[32m"; YELLOW="\e[33m"; CYAN="\e[36m"; MAGENTA="\e[35m"; WHITE="\e[97m"; BOLD="\e[1m"; RESET="\e[0m"
+
+print_info()  { echo -e "${CYAN}[Info]${RESET} $1" >&2; }
+print_ok()    { echo -e "${GREEN}[OK]${RESET}  $1" >&2; }
+print_error() { echo -e "${RED}[Error]${RESET} $1" >&2; }
+
+print_title() {
+    echo -e "${MAGENTA}${BOLD}" >&2
+    echo "╔══════════════════════════════════════════════╗" >&2
+    printf "║ %-42s ║\n" "$1" >&2
+    echo "╚══════════════════════════════════════════════╝" >&2
+    echo -e "${RESET}" >&2
+}
+
+# ================================
+# 基础变量
+# ================================
+PROTO="reverse-server"
+PROTO_NAME="Xray Reverse Server"
+CONF_DIR="/root/catmi/xray/conf"
+OUT_DIR="/root/catmi/xray/out"
+XRAYLS_BIN="/root/catmi/xray/xrayls"
+
+FALLBACK_ENC="mlkem768x25519plus.native.600s.OEYSQhMul9UVxme8omvFtznEWqQViMIEORBJp0fVKekmjMwzBj1NwCikhruSYboDfvnnCS2XTXjWOv1W7PAw4w"
+
+mkdir -p "$CONF_DIR" "$OUT_DIR"
+
+# ================================
+# 随机端口及工具
+# ================================
+random_port() { shuf -i 10000-60000 -n 1; }
+port_in_use() { ss -tuln | awk '{print $5}' | grep -q ":${1}$"; }
+
+random_free_port() {
+    while true; do
+        p=$(random_port)
+        if ! port_in_use "$p"; then echo "$p"; return; fi
+    done
+}
+
+clean_input() { echo "$1" | tr -d '\000-\037'; }
+
+safe_read_port() {
+    local default="$1" input port
+    while true; do
+        printf "请输入端口 (默认 %s): " "$default" >&2
+        read input
+        input=$(clean_input "$input")
+        port="${input:-$default}"
+
+        [[ "$port" =~ ^[0-9]+$ ]] || { print_error "端口必须是数字"; continue; }
+        (( port >= 1 && port <= 65535 )) || { print_error "端口范围错误"; continue; }
+        port_in_use "$port" && { print_error "端口已占用"; continue; }
+
+        echo "$port"
+        return
+    done
+}
+
+# ================================
+# UUID
+# ================================
+generate_uuid() {
+    cat /proc/sys/kernel/random/uuid
+}
+
+# ================================
+# ML-KEM
+# ================================
+generate_mlkem() {
+    if [ ! -x "$XRAYLS_BIN" ]; then
+        SERVER_DEC="$FALLBACK_ENC"
+        CLIENT_ENC="$FALLBACK_ENC"
+        return
+    fi
+
+    local out=$("$XRAYLS_BIN" vlessenc 2>/dev/null)
+    SERVER_DEC=$(echo "$out" | grep -oP '"decryption"\s*:\s*"\K[^"]+')
+    CLIENT_ENC=$(echo "$out" | grep -oP '"encryption"\s*:\s*"\K[^"]+')
+
+    [[ -z "$SERVER_DEC" ]] && SERVER_DEC="$FALLBACK_ENC"
+    [[ -z "$CLIENT_ENC" ]] && CLIENT_ENC="$FALLBACK_ENC"
+}
+
+# ================================
+# 自动编号（01、02、03…）
+# ================================
+get_next_index() {
+    local used=() i=1 f base
+    shopt -s nullglob
+    for f in "$CONF_DIR"/${PROTO}-*.json; do
+        base=$(basename "$f")
+        if [[ "$base" =~ ^${PROTO}-([0-9]+)\.json$ ]]; then
+            used+=("${BASH_REMATCH[1]}")
+        fi
+    done
+    if ((${#used[@]} == 0)); then printf "%02d\n" 1; return; fi
+    IFS=$'\n' used=($(printf "%s\n" "${used[@]}" | sort -n))
+    for n in "${used[@]}"; do [[ "$n" -ne "$i" ]] && break; ((i++)); done
+    printf "%02d\n" "$i"
+}
+
+# ================================
+# 监听地址选择（保留模板风格）
+# ================================
+choose_listen_ip() {
+    echo "请选择监听地址：" >&2
+    echo "1) IPv4 (0.0.0.0)" >&2
+    echo "2) IPv6 (::)" >&2
+    echo "3) 本机回环 (127.0.0.1)" >&2
+
+    printf "选择 (默认 1): " >&2
+    read choice
+    choice=$(clean_input "$choice")
+
+    case "$choice" in
+        2) echo "::" ;;
+        3) echo "127.0.0.1" ;;
+        *) echo "0.0.0.0" ;;
+    esac
+}
+
+# ================================
+# 获取公网 IP（用于客户端链接）
+# ================================
+get_public_ip() {
+    local ipv4 ipv6
+    ipv4=$(curl -s4 --connect-timeout 3 https://api.ipify.org 2>/dev/null)
+    ipv6=$(curl -s6 --connect-timeout 3 https://api64.ipify.org 2>/dev/null)
+
+    if [ -n "$ipv4" ] && [ -n "$ipv6" ]; then
+        echo "请选择要使用的公网 IP:" >&2
+        echo "1) IPv4: $ipv4" >&2
+        echo "2) IPv6: $ipv6" >&2
+        read -p "选择 (默认 1): " ip_choice
+        ip_choice=${ip_choice:-1}
+        if [ "$ip_choice" -eq 2 ]; then
+            echo "$ipv6"
+        else
+            echo "$ipv4"
+        fi
+    elif [ -n "$ipv4" ]; then
+        echo "$ipv4"
+    elif [ -n "$ipv6" ]; then
+        echo "$ipv6"
+    else
+        echo "0.0.0.0"
+    fi
+}
+
+# ================================
+# 列出所有配置
+# ================================
+list_configs() {
+    print_title "当前 ${PROTO_NAME} 配置列表"
+
+    echo -e "${CYAN}编号 | 监听地址 | VLESS端口 | Portal端口 | UUID | Portal Tag${RESET}" >&2
+    echo "--------------------------------------------------------------------------------" >&2
+
+    shopt -s nullglob
+    for f in "$CONF_DIR"/${PROTO}-*.json; do
+        [[ -f "$f" ]] || continue
+
+        num=$(basename "$f" .json | cut -d'-' -f2)
+        # 提取第一个 inbound (vless)
+        listen=$(jq -r '.inbounds[0].listen' "$f")
+        vport=$(jq -r '.inbounds[0].port' "$f")
+        uuid=$(jq -r '.inbounds[0].settings.clients[0].id' "$f")
+        # 提取第二个 inbound (socks portal)
+        pport=$(jq -r '.inbounds[1].port' "$f")
+        ptag=$(jq -r '.inbounds[1].tag' "$f")
+
+        echo -e "${GREEN}$num${RESET}) ${YELLOW}$listen${RESET} | ${CYAN}$vport${RESET} | ${CYAN}$pport${RESET} | ${MAGENTA}$uuid${RESET} | ${WHITE}$ptag${RESET}" >&2
+    done
+    echo "--------------------------------------------------------------------------------" >&2
+}
+
+# ================================
+# 删除配置
+# ================================
+delete_config() {
+    list_configs
+
+    printf "请输入要删除的编号: " >&2
+    read num
+    num=$(clean_input "$num")
+    num_fmt=$(printf "%02d" "$num")
+
+    file="$CONF_DIR/$PROTO-$num_fmt.json"
+
+    if [[ -f "$file" ]]; then
+        rm -f "$file"
+        # 同步删除客户端记录文件中与该编号相关的条目（简单按行过滤，避免残留）
+        if [[ -f "$OUT_DIR/${PROTO}.txt" ]]; then
+            sed -i "/^\[$num_fmt\] /d" "$OUT_DIR/${PROTO}.txt" 2>/dev/null
+        fi
+        if [[ -f "$OUT_DIR/${PROTO}.yaml" ]]; then
+            # 删除 YAML 中以 # [$num_fmt] 开头到下一个空行或 --- 之间的块（简单做法：按段落删除）
+            awk -v num="$num_fmt" '
+                BEGIN { skip=0 }
+                /^# \['"$num_fmt"'\]/ { skip=1; next }
+                skip && /^$/ { skip=0; next }
+                !skip { print }
+            ' "$OUT_DIR/${PROTO}.yaml" > "$OUT_DIR/${PROTO}.yaml.tmp" && mv "$OUT_DIR/${PROTO}.yaml.tmp" "$OUT_DIR/${PROTO}.yaml"
+        fi
+        print_ok "已删除编号 $num_fmt 的 ${PROTO_NAME} 配置及客户端记录"
+    else
+        print_error "编号 $num_fmt 不存在"
+    fi
+}
+
+# ================================
+# 新增配置
+# ================================
+add_config() {
+    print_title "新增反向代理服务端配置"
+
+    local listen_ip=$(choose_listen_ip)
+    local vless_port=$(safe_read_port "$(random_free_port)")
+    local portal_port=$(safe_read_port "$(random_free_port)")
+    local UUID=$(generate_uuid)
+    local next=$(get_next_index)
+
+    local portal_tag="portal-${next}"
+    local reverse_tag="reverse-out-${next}"
+
+    generate_mlkem
+
+    local file="$CONF_DIR/$PROTO-$next.json"
+
+    jq -n \
+        --arg listen "$listen_ip" \
+        --argjson vport "$vless_port" \
+        --argjson pport "$portal_port" \
+        --arg uuid "$UUID" \
+        --arg dec "$SERVER_DEC" \
+        --arg portal "$portal_tag" \
+        --arg rev "$reverse_tag" \
+        '{
+            inbounds: [
+                {
+                    listen: $listen,
+                    port: $vport,
+                    protocol: "vless",
+                    settings: {
+                        decryption: $dec,
+                        clients: [
+                            {
+                                id: $uuid,
+                                flow: "xtls-rprx-vision",
+                                reverse: { tag: $rev }
+                            }
+                        ]
+                    }
+                },
+                {
+                    listen: $listen,
+                    port: $pport,
+                    protocol: "socks",
+                    tag: $portal,
+                    settings: { auth: "noauth" }
+                }
+            ],
+            routing: {
+                rules: [
+                    {
+                        inboundTag: [$portal],
+                        outboundTag: $rev
+                    }
+                ]
+            },
+            outbounds: [
+                { protocol: "freedom" }
+            ]
+        }' > "$file"
+
+    print_ok "服务端配置已生成：$file"
+
+    # ============================
+    # 生成客户端链接并保存
+    # ============================
+    # 获取公网 IP（用于客户端连接）
+    PUBLIC_IP=$(get_public_ip)
+    if [[ "$PUBLIC_IP" =~ : ]]; then
+        link_ip="[$PUBLIC_IP]"
+    else
+        link_ip="$PUBLIC_IP"
+    fi
+
+    # VLESS 链接
+    link="vless://${UUID}@${link_ip}:${vless_port}?encryption=${CLIENT_ENC}&flow=xtls-rprx-vision&type=tcp#reverse-server-${next}"
+
+    # 保存纯文本
+    echo "[$next] $link" >> "$OUT_DIR/${PROTO}.txt"
+
+    # 保存 YAML
+    cat >> "$OUT_DIR/${PROTO}.yaml" <<EOF
+
+# [$next] reverse-server-${next}
+- name: reverse-server-${next}
+  type: vless
+  server: $PUBLIC_IP
+  port: $vless_port
+  uuid: $UUID
+  encryption: $CLIENT_ENC
+  flow: xtls-rprx-vision
+  network: tcp
+EOF
+
+    # ============================
+    # 控制台输出
+    # ============================
+    print_info "=== 服务端信息 ==="
+    echo "编号: $next" >&2
+    echo "监听地址: $listen_ip" >&2
+    echo "VLESS 端口: $vless_port" >&2
+    echo "Portal 端口: $portal_port" >&2
+    echo "UUID: $UUID" >&2
+    echo "客户端 encryption: $CLIENT_ENC" >&2
+    echo "Portal Tag: $portal_tag" >&2
+    echo "Reverse Tag: $reverse_tag" >&2
+    echo >&2
+
+    print_info "=== 客户端链接 ==="
+    echo "$link" >&2
+    echo >&2
+
+    print_info "=== YAML 客户端配置示例 ==="
+    cat >&2 <<EOF
+- name: reverse-server-${next}
+  type: vless
+  server: $PUBLIC_IP
+  port: $vless_port
+  uuid: $UUID
+  encryption: $CLIENT_ENC
+  flow: xtls-rprx-vision
+  network: tcp
+EOF
+    echo >&2
+}
+
+# ================================
+# 主菜单
+# ================================
+menu() {
+    while true; do
+        print_title "反向代理服务端管理"
+        echo "1) 查看所有配置" >&2
+        echo "2) 新增配置" >&2
+        echo "3) 删除配置" >&2
+        echo "0) 退出" >&2
+        printf "请选择: " >&2
+        read c
+        c=$(clean_input "$c")
+
+        case $c in
+            1)
+                list_configs
+                printf "按回车继续..." >&2
+                read
+                ;;
+            2)
+                add_config
+                printf "按回车继续..." >&2
+                read
+                ;;
+            3)
+                delete_config
+                printf "按回车继续..." >&2
+                read
+                ;;
+            0)
+                echo "退出" >&2
+                exit 0
+                ;;
+            *)
+                print_error "无效选项"
+                printf "按回车继续..." >&2
+                read
+                ;;
+        esac
+    done
+}
+
+menu
