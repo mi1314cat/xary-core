@@ -87,19 +87,35 @@ generate_uuid() {
 # ================================
 generate_mlkem() {
     if [ ! -x "$XRAYLS_BIN" ]; then
+        print_error "未找到 xrayls 可执行文件: $XRAYLS_BIN"
+        print_info "将使用备用固定加密密钥（功能不受影响）"
         SERVER_DEC="$FALLBACK_ENC"
         CLIENT_ENC="$FALLBACK_ENC"
-        return
+        return 0
     fi
 
-    local out=$("$XRAYLS_BIN" vlessenc 2>/dev/null)
-    SERVER_DEC=$(echo "$out" | grep -oP '"decryption"\s*:\s*"\K[^"]+' | tr -d '\n\r')
-    CLIENT_ENC=$(echo "$out" | grep -oP '"encryption"\s*:\s*"\K[^"]+' | tr -d '\n\r')
+    print_info "正在通过 xrayls 生成 ML-KEM 参数..."
+    local output
+    output=$("$XRAYLS_BIN" vlessenc 2>/dev/null || true)
+    if [ -z "$output" ]; then
+        print_error "xrayls vlessenc 无输出，回退到固定密钥"
+        SERVER_DEC="$FALLBACK_ENC"
+        CLIENT_ENC="$FALLBACK_ENC"
+        return 0
+    fi
 
-    [[ -z "$SERVER_DEC" ]] && SERVER_DEC="$FALLBACK_ENC"
-    [[ -z "$CLIENT_ENC" ]] && CLIENT_ENC="$FALLBACK_ENC"
+    SERVER_DEC=$(echo "$output" | grep -oP '"decryption"\s*:\s*"\K[^"]+' | tail -1)
+    CLIENT_ENC=$(echo "$output" | grep -oP '"encryption"\s*:\s*"\K[^"]+' | tail -1)
+
+    if [ -z "$SERVER_DEC" ] || [ -z "$CLIENT_ENC" ]; then
+        print_error "解析 ML-KEM 参数失败，回退到固定密钥"
+        SERVER_DEC="$FALLBACK_ENC"
+        CLIENT_ENC="$FALLBACK_ENC"
+    else
+        print_info "服务端 decryption: $SERVER_DEC"
+        print_info "客户端 encryption: $CLIENT_ENC"
+    fi
 }
-
 # ================================
 # 自动编号（01、02、03…）
 # ================================
