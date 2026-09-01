@@ -27,29 +27,32 @@ ${GREEN}xrayls 管理脚本${PLAIN}
 ${GREEN}1.${PLAIN} 安装 xray
 ${GREEN}2.${PLAIN} 卸载 xray
 ${GREEN}3.${PLAIN} 更新 xray
-${GREEN}4.${PLAIN} 重启 xray
-${GREEN}5.${PLAIN} 查看客户端配置
-${GREEN}6.${PLAIN} 修改配置
-${GREEN}7.${PLAIN} 查询服务状态
-${GREEN}8.${PLAIN} 添加节点
+${GREEN}4.${PLAIN} 查看客户端配置
+${GREEN}5.${PLAIN} 修改配置
+${GREEN}6.${PLAIN} 查询服务状态
+${GREEN}7.${PLAIN} 添加节点
+${GREEN}8.${PLAIN} 校验配置/重启服务
+${GREEN}9.${PLAIN} 出站管理（outbound）
+${GREEN}10.${PLAIN} 分流规则管理（split）
 ${GREEN}0.${PLAIN} 退出脚本
 ----------------------
 xrayls 服务状态: ${xrayls_server_status_text}
 ----------------------"
 
-    read -p "请输入选项 [0-8]: " choice
+    read -p "请输入选项 [0-10]: " choice
 
     case "${choice}" in
         0) clear; exit 0 ;;
         1) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/VEVLRE.sh) ;;
         2) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/uninstall_xray.sh) ;;
         3) upxray  ;;
-        4) systemctl restart xrayls.service ;;
-        5) show_xray_configs ;;
-        6) XRevise ;;  # 示例配置修改
-        7) systemctl status xrayls --no-pager ;;
-        8) add_node_menu ;;
-
+        4) show_xray_configs ;;
+        5) XRevise ;;  # 示例配置修改
+        6) systemctl status xrayls --no-pager ;;
+        7) add_node_menu ;;
+        8) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/verify.sh) ;;
+        9) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/outbound.sh) ;;
+        10) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/split.sh) ;;
 
         *) echo -e "${RED}无效的选项 ${choice}${PLAIN}" ;;
     esac
