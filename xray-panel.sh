@@ -34,12 +34,13 @@ ${GREEN}7.${PLAIN} 添加节点
 ${GREEN}8.${PLAIN} 校验配置/重启服务
 ${GREEN}9.${PLAIN} 出站管理（outbound）
 ${GREEN}10.${PLAIN} 分流规则管理（split）
+${GREEN}11.${PLAIN} 反向代理管理（reverse）
 ${GREEN}0.${PLAIN} 退出脚本
 ----------------------
 xrayls 服务状态: ${xrayls_server_status_text}
 ----------------------"
 
-    read -p "请输入选项 [0-10]: " choice
+    read -p "请输入选项 [0-11]: " choice
 
     case "${choice}" in
         0) clear; exit 0 ;;
@@ -53,12 +54,36 @@ xrayls 服务状态: ${xrayls_server_status_text}
         8) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/verify.sh) ;;
         9) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/outbound.sh) ;;
         10) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/split.sh) ;;
+        11) reverse_menu ;;
 
         *) echo -e "${RED}无效的选项 ${choice}${PLAIN}" ;;
     esac
 
     echo && read -p "按回车键返回主菜单..." && echo
 }
+
+# 反向代理管理子菜单（reverse）
+reverse_menu() {
+    while true; do
+        clear
+        echo -e "
+${GREEN}反向代理管理 (reverse)${PLAIN}
+----------------------
+${GREEN}1.${PLAIN} 服务端管理（xrayserver-reverse，运行在家/入口侧）
+${GREEN}2.${PLAIN} 客户端管理（xrayclient-reverse，运行在RN/回连侧）
+${GREEN}0.${PLAIN} 返回主菜单
+----------------------"
+        read -p "请输入选项 [0-2]: " rc
+        case "${rc}" in
+            1) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/fd/xrayserver-reverse.sh) ;;
+            2) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/fd/xrayclient-reverse.sh) ;;
+            0) return ;;
+            *) echo -e "${RED}无效的选项 ${rc}${PLAIN}" ;;
+        esac
+        echo && read -p "按回车键返回子菜单..." && echo
+    done
+}
+
 load_env() {
     if [ -f "$ENV_FILE" ]; then
         # 检查 env 文件格式是否正确
