@@ -57,6 +57,11 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
         "wsSettings": {
           "path": "${WS_PATH1}"
         }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": true
       }
     },
     {
@@ -76,6 +81,11 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
         "wsSettings": {
           "path": "${WS_PATH}"
         }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": true
       }
     },
     {
@@ -94,12 +104,14 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
       "streamSettings": {
         "network": "xhttp",
         "xhttpSettings": {
-          "path": "${WS_PATH2}"
+          "path": "${WS_PATH2}",
+          "mode": "auto"
         }
       },
       "sniffing": {
         "enabled": true,
-        "destOverride": ["http", "tls", "quic"]
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": true
       }
     },
     {
@@ -125,9 +137,7 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
         "network": "tcp",
         "security": "reality",
         "realitySettings": {
-          "show": true,
-          "dest": "${dest_server}:443",
-          "xver": 0,
+          "target": "${dest_server}:443",
           "serverNames": ["${dest_server}"],
           "privateKey": "$(cat /usr/local/etc/xray/privatekey)",
           "shortIds": ["${short_id}"]
@@ -150,6 +160,7 @@ cat <<EOF > "$INSTALL_DIR/conf/nginx.json"
 
 EOF
 }
+
 # ================= 输出 =================
 out_conf() {
 
