@@ -186,7 +186,7 @@ ${GREEN}0.${PLAIN} 返回主菜单
             ;;
 
         6)
-            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/vlessxhttp_tls.sh)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/vlessxhttpecn.sh)
             systemctl restart xrayls.service
             ;;
 
