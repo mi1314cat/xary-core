@@ -77,6 +77,21 @@ clean_input() {
     echo "$1" | tr -d '\000-\037'
 }
 
+# ================================
+# URL 编码 (分享链接 ech= 参数用)
+# ================================
+urlencode() {
+    local s="$1" i c out=""
+    for ((i=0; i<${#s}; i++)); do
+        c="${s:i:1}"
+        case "$c" in
+            [a-zA-Z0-9_.~-]) out+="$c" ;;
+            *) printf -v hex '%%%02X' "'$c"; out+="$hex" ;;
+        esac
+    done
+    printf '%s' "$out"
+}
+
 safe_read() {
     local prompt="$1"
     local default="$2"
@@ -602,7 +617,9 @@ import json, sys
 p, enc = sys.argv[1], sys.argv[2]
 d = json.load(open(p))
 ts = d["inbounds"][0]["streamSettings"]["tlsSettings"]
-ts.pop("echServerKeys", None)
+# 仅清除空值 (CDN-ECH 模式); direct-ECH 模式的 echServerKeys 必须保留
+if not ts.get("echServerKeys"):
+    ts.pop("echServerKeys", None)
 if enc:
     d["_clientEncryption"] = enc
 elif "_clientEncryption" in d:
@@ -658,20 +675,40 @@ render_client() {
     OUT_FILE="$OUT_DIR/${PROTO}_client-$num2.yaml"
     SHARE_FILE="$OUT_DIR/${PROTO}_share-$num2.txt"
 
-    # 客户端连接目标: CDN 模式用域名:443, Nginx/CDN直连都走 CDN:443 (与 mihomo 版一致)
-    # 直连 ECH (xray 原生): 客户端可 pin echConfigList 或自动 HTTPS 发现
+    # 客户端连接目标:
+    #   CDN-ECH 模式 (ECH_MODE=cdn):   连 CDN:443 (域名), TLS 终止于 Cloudflare, 自动发现 CF 的 ECH
+    #   direct-ECH 模式 (ECH_MODE=direct): 连 xray 服务器自身端口 (直连, TLS 终止于 xray, echServerKeys 生效)
     CLIENT_SNI="$CERT_DOMAIN"
-    # 客户端永远连 CDN:443 (域名), 源站端口只出现在 nginx location / Cloudflare 回源规则里
-    LINK_HOST="$CERT_DOMAIN"
-    LINK_PORT="443"
+    if [[ "$ECH_MODE" = "direct" ]]; then
+        # direct ECH = 必须直连 xray 端口 (TLS 终止于 xray), 否则 pin 的 ECHConfig 会被 CF 拒绝
+        # 优先 IPv4, 无则 IPv6 (IPv6 加方括号)
+        if [[ -n "$PUBLIC_IP_V4" ]]; then
+            LINK_HOST="$PUBLIC_IP_V4"
+        elif [[ -n "$PUBLIC_IP_V6" ]]; then
+            LINK_HOST="[$PUBLIC_IP_V6]"
+        else
+            LINK_HOST="$CERT_DOMAIN"
+        fi
+        LINK_PORT="$VLESS_PORT"
+    else
+        # CDN-ECH = 连 CDN:443, 自动发现
+        LINK_HOST="$CERT_DOMAIN"
+        LINK_PORT="443"
+    fi
 
     local ech_block=""
     local ech_comment=""
     if [[ "$ECH_MODE" = "direct" ]]; then
-        ech_comment="# ECH: Xray 原生 echConfigList (直连, TLS1.3), 客户端连 CDN:443"
-        ech_block="    echConfigList: $ECH_CONFIG_LIST"
+        # 目标客户端为 mihomo: ech-opts.config 填入标准 ECHConfigList (跨核心通用)
+        # 若使用 Xray/v2ray 客户端, 请改用同值的 echConfigList 字段
+        ech_comment="# ECH: 直连 Xray ECH (pin 标准 ECHConfigList). 直连服务器端口, TLS 终止于 Xray"
+        ech_block="    ech-opts:
+      enable: true
+      config: $ECH_CONFIG_LIST"
     else
         ech_comment="# ECH: Cloudflare 边缘处理 (CDN-ECH), 客户端自动 HTTPS 发现"
+        ech_block="    ech-opts:
+      enable: true"
     fi
 
     if [[ "$VLESS_TRANSPORT" = "xhttp" ]]; then
@@ -707,12 +744,17 @@ $network_block
 EOF
 
     if [[ -n "$ech_block" ]]; then
-        cat >> "$OUT_FILE" <<EOF
-    echConfigList: $ECH_CONFIG_LIST
-EOF
+        printf "%b\n" "$ech_block" >> "$OUT_FILE"
     fi
 
-    echo "vless://${UUID}@${LINK_HOST}:${LINK_PORT}?encryption=${CLIENT_ENC:-none}&security=tls&sni=${CLIENT_SNI}&type=$([ "$VLESS_TRANSPORT" = "xhttp" ] && echo xhttp || echo ws)&path=$([ "$VLESS_TRANSPORT" = "xhttp" ] && echo "$XHTTP_PATH" || echo "$WS_PATH")#${PROTO}-${num2}" > "$SHARE_FILE"
+    # 分享链接 ech= 参数: cdn 用 DNS 查询形式, direct 用 pin 的 ECHConfigList
+    local ech_param=""
+    if [[ "$ECH_MODE" = "direct" && -n "$ECH_CONFIG_LIST" ]]; then
+        ech_param="&ech=$(urlencode "$ECH_CONFIG_LIST")"
+    elif [[ "$ECH_MODE" = "cdn" ]]; then
+        ech_param="&ech=$(urlencode "cloudflare-ech.com+https://dns.alidns.com/dns-query")"
+    fi
+    echo "vless://${UUID}@${LINK_HOST}:${LINK_PORT}?encryption=${CLIENT_ENC:-none}&security=tls&sni=${CLIENT_SNI}&type=$([ "$VLESS_TRANSPORT" = "xhttp" ] && echo xhttp || echo ws)&path=$([ "$VLESS_TRANSPORT" = "xhttp" ] && echo "$XHTTP_PATH" || echo "$WS_PATH")${ech_param}#${PROTO}-${num2}" > "$SHARE_FILE"
 
     print_ok "客户端 YAML: $OUT_FILE"
     print_ok "分享链接: $SHARE_FILE"
