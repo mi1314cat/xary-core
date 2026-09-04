@@ -130,7 +130,15 @@ mkdir -p "$CONF_DIR" "$OUT_DIR"
 # 随机生成函数
 # ================================
 random_port() { shuf -i 10000-60000 -n 1; }
-random_path() { echo "/$(tr -dc A-Za-z0-9 </dev/urandom | head -c 8)"; }
+random_path() {
+    local len=$((RANDOM % 9 + 8))  # 8..16
+    local chars="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    local out="" i
+    for ((i = 0; i < len; i++)); do
+        out+="${chars:RANDOM % ${#chars}:1}"
+    done
+    echo "/$out"
+}
 
 # ================================
 # 端口检测
@@ -220,7 +228,7 @@ get_next_index() {
     fi
     IFS=$'\n' used=($(printf "%s\n" "${used[@]}" | sort -n))
     for n in "${used[@]}"; do
-        [[ "$n" -ne "$i" ]] && break
+        [[ $((10#$n)) -ne "$i" ]] && break
         ((i++))
     done
     printf "%02d\n" "$i"
@@ -333,12 +341,15 @@ ask_cert() {
 
     local found=() i=1 choice
     shopt -s nullglob
-    for f in /root/catmi/*.crt; do
+    # 双路径: cf-manager Origin CA 优先 + 原 /root/catmi
+    local f
+    for f in /root/catmi/cloudflare/certs/*.crt /root/catmi/*.crt; do
         [[ -f "$f" ]] && found+=("$f")
     done
 
     if ((${#found[@]} > 0)); then
         echo "  检测到已有证书:" >&2
+        local first_ok=0  # 第一个有密钥的证书编号 (回车默认用它)
         for f in "${found[@]}"; do
             local dom
             dom=$(basename "$f" .crt | sed 's/cert-//')
@@ -346,6 +357,7 @@ ask_cert() {
             local key="${f%.crt}.key"
             if [[ -f "$key" ]]; then
                 echo "    $i) $dom (有密钥)" >&2
+                [[ "$first_ok" -eq 0 ]] && first_ok="$i"
             else
                 echo "    $i) $dom (无密钥, 忽略)" >&2
             fi
@@ -353,11 +365,17 @@ ask_cert() {
             ((i++))
         done
         echo "    $i) 生成新证书" >&2
-        printf "  选择证书 (默认 $i): " >&2
+        printf "  选择证书 (默认 $first_ok): " >&2
         read -r choice
         choice=$(clean_input "$choice")
 
-        if [[ -n "$choice" ]] && [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice < i )); then
+        # 回车 → 默认第一个有密钥的证书; 无效输入 → 同样退回第一可用证书
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice < i )); then
+            :
+        elif [[ "$first_ok" -ge 1 ]] && (( first_ok < i )); then
+            choice="$first_ok"
+        fi
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice < i )); then
             local pair="${found[$((choice-1))]}"
             local crt="${pair%%|*}"
             local key="${pair##*|}"
@@ -439,29 +457,15 @@ ask_features() {
         *) MLKEM_ENABLED=true ;;
     esac
 
-    if [[ "$ACCESS_MODE" = "cdn" ]]; then
-        echo "  ECH 形态:" >&2
-        echo "  1) CDN-ECH (Cloudflare 边缘处理 ECH, 无需服务器密钥, 推荐)" >&2
-        echo "  2) 直连 ECH (Xray 原生 echServerKeys, 需 TLS1.3)" >&2
-        printf "  选择 (默认1): " >&2
-        read -r yn
-        case "$(clean_input "$yn")" in
-            2) ECH_MODE="direct" ;;
-            *) ECH_MODE="cdn" ;;
-        esac
-    else
-        # Nginx 模式 = 走 CDN 到 nginx -> TLS 回源 -> xray
-        # ECH 由 Cloudflare 边缘处理 (CDN-ECH) 或 xray 原生 (直连 ECH, nginx 透明透传 TLS)
-        echo "  ECH 形态:" >&2
-        echo "  1) CDN-ECH (Cloudflare 边缘处理 ECH, 推荐)" >&2
-        echo "  2) 直连 ECH (Xray 原生 echServerKeys, nginx 透传 TLS)" >&2
-        printf "  选择 (默认1): " >&2
-        read -r yn
-        case "$(clean_input "$yn")" in
-            2) ECH_MODE="direct" ;;
-            *) ECH_MODE="cdn" ;;
-        esac
-    fi
+    echo "  ECH 形态:" >&2
+    echo "  1) CDN-ECH (Cloudflare 边缘处理 ECH, 无需服务器密钥, 推荐)" >&2
+    echo "  2) 直连 ECH (Xray 原生 echServerKeys, 需 TLS1.3)" >&2
+    printf "  选择 (默认1): " >&2
+    read -r yn
+    case "$(clean_input "$yn")" in
+        2) ECH_MODE="direct" ;;
+        *) ECH_MODE="cdn" ;;
+    esac
 }
 
 # ================================
