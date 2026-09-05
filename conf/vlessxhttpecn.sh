@@ -339,57 +339,169 @@ ask_cert() {
     KEY_FILE=""
     CERT_DOMAIN=""
 
-    local found=() i=1 choice
-    shopt -s nullglob
-    # 双路径: cf-manager Origin CA 优先 + 原 /root/catmi
-    local f
-    for f in /root/catmi/cloudflare/certs/*.crt /root/catmi/*.crt; do
-        [[ -f "$f" ]] && found+=("$f")
-    done
+    local yn domain
 
-    if ((${#found[@]} > 0)); then
-        echo "  检测到已有证书:" >&2
-        local first_ok=0  # 第一个有密钥的证书编号 (回车默认用它)
-        for f in "${found[@]}"; do
-            local dom
-            dom=$(basename "$f" .crt | sed 's/cert-//')
-            # 检查同名 key 是否存在
-            local key="${f%.crt}.key"
-            if [[ -f "$key" ]]; then
-                echo "    $i) $dom (有密钥)" >&2
-                [[ "$first_ok" -eq 0 ]] && first_ok="$i"
-            else
-                echo "    $i) $dom (无密钥, 忽略)" >&2
-            fi
-            found[$((i-1))]="${f}|${key}"
-            ((i++))
-        done
-        echo "    $i) 生成新证书" >&2
-        printf "  选择证书 (默认 $first_ok): " >&2
-        read -r choice
-        choice=$(clean_input "$choice")
-
-        # 回车 → 默认第一个有密钥的证书; 无效输入 → 同样退回第一可用证书
-        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice < i )); then
-            :
-        elif [[ "$first_ok" -ge 1 ]] && (( first_ok < i )); then
-            choice="$first_ok"
-        fi
-        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice < i )); then
-            local pair="${found[$((choice-1))]}"
-            local crt="${pair%%|*}"
-            local key="${pair##*|}"
-            if [[ -f "$crt" && -f "$key" ]]; then
-                CERT_FILE="$crt"
-                KEY_FILE="$key"
-                CERT_DOMAIN=$(basename "$crt" .crt | sed 's/cert-//')
+    echo "  证书来源:" >&2
+    echo "  1) 已有证书 (自动检测: cf-manager Origin CA / /root/catmi / Nginx 容器)" >&2
+    echo "  2) 手动输入证书路径" >&2
+    echo "  3) 现在申请 (cf-manager Origin CA, 需 CF API)" >&2
+    echo "  4) 自签证书 (内测/无域名兜底)" >&2
+    printf "  选择 (默认1): " >&2
+    read -r yn
+    case "$(clean_input "$yn")" in
+        2)
+            # 手动输入证书路径
+            printf "  证书 crt 路径: " >&2; read -r domain
+            CERT_FILE=$(clean_input "$domain")
+            printf "  证书 key 路径: " >&2; read -r domain
+            KEY_FILE=$(clean_input "$domain")
+            if [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
+                CERT_DOMAIN=$(basename "$CERT_FILE" .crt | sed 's/cert-//')
                 print_ok "使用证书: $CERT_DOMAIN"
                 return 0
             fi
-        fi
-    fi
+            print_error "证书路径无效, 退回自签"
+            generate_cert
+            ;;
+        3)
+            # cf-manager 申请 Origin CA (需要 CF API 配置)
+            printf "  请输入要申请证书的域名: " >&2; read -r domain
+            domain=$(clean_input "$domain" | tr '[:upper:]' '[:lower:]')
+            [[ -z "$domain" ]] && { print_error "域名不能为空, 退回自签"; generate_cert; return; }
+            print_info "通过 cf-manager 申请 Origin CA 证书: $domain ..."
+            if cfmgr && "$CFMGR" cert issue "$domain" 2>/dev/null; then
+                local ocrt="/root/catmi/cloudflare/certs/$domain.crt"
+                local okey="/root/catmi/cloudflare/certs/$domain.key"
+                if [[ -f "$ocrt" && -f "$okey" ]]; then
+                    CERT_FILE="$ocrt"; KEY_FILE="$okey"; CERT_DOMAIN="$domain"
+                    print_ok "Origin CA 证书已就绪: $domain"
+                    return 0
+                fi
+            fi
+            print_warn "cf-manager 申请失败, 退回自签"
+            generate_cert
+            ;;
+        4)
+            generate_cert
+            ;;
+        *)
+            # 默认1: 已有证书 (多路径检测)
+            local found=() i=1 choice f key
+            shopt -s nullglob
+            # 路径1: cf-manager Origin CA
+            for f in /root/catmi/cloudflare/certs/*.crt; do [[ -f "$f" ]] && found+=("$f"); done
+            # 路径2: /root/catmi 根目录
+            for f in /root/catmi/*.crt; do [[ -f "$f" ]] && found+=("$f"); done
+            # 路径3: Nginx 容器证书 (docker nginx) 或宿主机 nginx certs
+            local nginx_cd=""
+            if command -v docker >/dev/null 2>&1; then
+                local cid
+                cid=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -iE '^nginx$|nginx' | head -1)
+                [[ -n "$cid" ]] && nginx_cd=$(docker inspect "$cid" --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/certs"}}{{.Source}}{{end}}{{end}}' 2>/dev/null)
+            fi
+            [[ -z "$nginx_cd" && -d /etc/nginx/certs ]] && nginx_cd="/etc/nginx/certs"
+            if [[ -n "$nginx_cd" && -d "$nginx_cd" ]]; then
+                for f in "$nginx_cd"/*.pem; do
+                    [[ -f "$f" ]] || continue
+                    local k="${f%_cert.pem}_key.pem"
+                    [[ -f "$k" ]] || k="${f%.pem}.key"
+                    [[ -f "$k" ]] && found+=("$f|$k")
+                done
+            fi
 
-    generate_cert
+            if ((${#found[@]} > 0)); then
+                echo "  检测到已有证书:" >&2
+                local first_ok=0
+                for f in "${found[@]}"; do
+                    local crt="${f%%|*}" key_file
+                    key_file="${f##*|}"
+                    # 未显式配对时取同名 key
+                    if [[ "$f" == *"|"* ]]; then
+                        key_file="${f##*|}"
+                    else
+                        key_file="${crt%.crt}.key"
+                    fi
+                    local dom
+                    dom=$(basename "$crt" .crt | sed 's/cert-//')
+                    if [[ -f "$key_file" ]]; then
+                        echo "    $i) $dom (有密钥)" >&2
+                        [[ "$first_ok" -eq 0 ]] && first_ok="$i"
+                        found[$((i-1))]="$crt|$key_file"
+                    else
+                        echo "    $i) $dom (无密钥, 忽略)" >&2
+                        found[$((i-1))]="$crt|"
+                    fi
+                    ((i++))
+                done
+                echo "    $i) 手动输入路径" >&2
+                echo "    $((i+1))) 现在申请 (cf-manager Origin CA)" >&2
+                echo "    $((i+2))) 生成自签证书" >&2
+                printf "  选择证书 (默认 $first_ok): " >&2
+                read -r choice
+                choice=$(clean_input "$choice")
+
+                # 回车 → 默认第一个有密钥的证书; 无效 → 同退第一可用
+                if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice < i )); then
+                    :
+                elif [[ "$first_ok" -ge 1 ]] && (( first_ok < i )); then
+                    choice="$first_ok"
+                fi
+                if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice < i )); then
+                    local pair="${found[$((choice-1))]}"
+                    local crt="${pair%%|*}"
+                    local key="${pair##*|}"
+                    if [[ -f "$crt" && -f "$key" ]]; then
+                        CERT_FILE="$crt"
+                        KEY_FILE="$key"
+                        CERT_DOMAIN=$(basename "$crt" .crt | sed 's/cert-//')
+                        print_ok "使用证书: $CERT_DOMAIN"
+                        return 0
+                    fi
+                fi
+                # 用户选了手动输入路径
+                if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice == i )); then
+                    printf "  证书 crt 路径: " >&2; read -r domain
+                    CERT_FILE=$(clean_input "$domain")
+                    printf "  证书 key 路径: " >&2; read -r domain
+                    KEY_FILE=$(clean_input "$domain")
+                    if [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
+                        CERT_DOMAIN=$(basename "$CERT_FILE" .crt | sed 's/cert-//')
+                        print_ok "使用证书: $CERT_DOMAIN"
+                        return 0
+                    fi
+                    print_error "证书路径无效, 退回自签"
+                    generate_cert
+                    return 0
+                fi
+                # 用户选了现在申请
+                if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice == i+1 )); then
+                    printf "  请输入要申请证书的域名: " >&2; read -r domain
+                    domain=$(clean_input "$domain" | tr '[:upper:]' '[:lower:]')
+                    [[ -z "$domain" ]] && { print_error "域名不能为空, 退回自签"; generate_cert; return 0; }
+                    print_info "通过 cf-manager 申请 Origin CA 证书: $domain ..."
+                    if cfmgr && "$CFMGR" cert issue "$domain" 2>/dev/null; then
+                        local ocrt="/root/catmi/cloudflare/certs/$domain.crt"
+                        local okey="/root/catmi/cloudflare/certs/$domain.key"
+                        if [[ -f "$ocrt" && -f "$okey" ]]; then
+                            CERT_FILE="$ocrt"; KEY_FILE="$okey"; CERT_DOMAIN="$domain"
+                            print_ok "Origin CA 证书已就绪: $domain"
+                            return 0
+                        fi
+                    fi
+                    print_warn "cf-manager 申请失败, 退回自签"
+                    generate_cert
+                    return 0
+                fi
+                # 用户选了自签
+                if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice == i+2 )); then
+                    generate_cert
+                    return 0
+                fi
+            fi
+
+            generate_cert
+            ;;
+    esac
 }
 
 # ================================
@@ -808,8 +920,19 @@ ensure_include() {
     python3 - "$MAIN_CONF" "$CONF_DIR" <<'PY'
 import json, sys, os
 p, cdir = sys.argv[1], sys.argv[2]
-d = json.load(open(p))
 pattern = os.path.join(cdir, "vless-xhttp-*.json")
+d = {}
+if os.path.isfile(p):
+    try:
+        d = json.load(open(p))
+    except Exception:
+        d = {}
+    if not isinstance(d, dict):
+        d = {}
+else:
+    # 主配置不存在 (新服务器首次部署): 创建最小骨架, 避免 FileNotFoundError
+    d = {"log": {"loglevel": "warning"}, "inbounds": [], "outbounds": [], "include": [pattern]}
+    print(f"[OK] 主配置不存在, 已创建最小骨架: {p}")
 inc = d.get("include", [])
 if isinstance(inc, str):
     inc = [inc]
