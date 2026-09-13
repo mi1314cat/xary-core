@@ -113,6 +113,48 @@ bash <(curl -Ls .../Client/l.sh) --vless "vless://..." --yes
 
 ## 卸载
 
+**方式一：独立删除脚本**（推荐，不依赖面板/命令）
+
 ```bash
-xbd uninstall        # 会先列出将删除的清单，确认后才执行
+bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/uninstall-xray-client.sh)
 ```
+
+先看会删什么（不动手）：
+
+```bash
+bash <(curl -Ls .../Client/uninstall-xray-client.sh) --dry-run
+```
+
+删之前会保留节点配置：
+
+```bash
+bash <(curl -Ls .../Client/uninstall-xray-client.sh) --keep-nodes
+```
+（节点会备份到 `/root/xbd-nodes-backup-<时间>.tar.gz`）
+
+**方式二：用命令**
+
+```bash
+xbd uninstall
+```
+
+### 它会删除什么
+
+| 项目 | 说明 |
+|---|---|
+| 6 个 systemd 单元 | 先停止 → 禁用 → 删除并 reload |
+| 安装目录 | 默认 `/opt/xray-browser-dialer`（含 Xray 内核、节点、日志） |
+| `/usr/local/bin/xbd` | 仅当它指向本项目时 |
+| `/etc/profile.d/proxy.sh` | 仅当内容指向本项目的 HTTP 代理端口时 |
+| docker 代理配置 | 同上判断 |
+| nftables 透明接管规则 | 仅当 `table ip xbd_takeover` 存在时 |
+
+### 它绝不会碰什么
+
+* `/etc/xray`、`/usr/local/etc/xray`、`/usr/local/share/xray`
+* `/usr/local/bin/xray`（系统自己的 Xray 二进制）
+* `xray.service`、`xrayls.service`（系统自带的服务）
+* mihomo 及其配置、其它用户服务
+* 防火墙默认策略、路由表
+
+**每一项删除前都做归属校验** —— 内容不指向本项目就跳过并提示，宁可不删也不删错。
