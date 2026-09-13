@@ -27,6 +27,31 @@ sudo bash RUN.sh
 
 ---
 
+## 一键卸载
+
+```bash
+bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/uninstall-xray-client.sh)
+```
+
+先看会删什么、不动手：
+
+```bash
+bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/uninstall-xray-client.sh) --dry-run
+```
+
+保留节点配置再删（备份到 `/root/xbd-nodes-backup-<时间>.tar.gz`）：
+
+```bash
+bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/uninstall-xray-client.sh) --keep-nodes
+```
+
+独立脚本，不依赖面板与 `xbd` 命令 —— 即使安装已损坏也能跑。
+**只删本项目创建的东西**：每一项删除前都做归属校验，内容不指向本项目就跳过。
+`/usr/local/etc/xray`、系统 `xray.service`、mihomo、防火墙与路由一律不碰。
+详见 [RUN.md](RUN.md#卸载)。
+
+---
+
 ## 它解决什么问题
 
 ```
@@ -58,7 +83,7 @@ xbd diagnose                # 全面诊断
 xbd export                  # 导出连接配置
 xbd cert <编号>              # 取服务端证书指纹（自签节点）
 xbd xray check|update       # Xray 内核版本 / 更新
-xbd uninstall               # 安全卸载
+xbd uninstall               # 安全卸载（也可用上面的独立删除脚本）
 ```
 
 ---
