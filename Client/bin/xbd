@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# ============================================================================
+#  Xray Client Web Manager — 入口
+# ============================================================================
+#  多文件版。所有子命令在这里分发到 lib/ 下的模块。
+#
+#  Xray 是常驻底层客户端；Browser Dialer 是按需启用的增强能力，
+#  两者生命周期完全解耦 —— 关闭 Browser Dialer 不会停止 Xray。
+# ============================================================================
+set -euo pipefail
+
+XBD_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export XBD_ROOT
+XBD_PREFIX="${XBD_PREFIX:-/opt/xray-browser-dialer}"
+export XBD_PREFIX
+XBD_VERSION="$(cat "$XBD_ROOT/VERSION" 2>/dev/null || echo unknown)"
+export XBD_VERSION
+
+# shellcheck source=/dev/null
+. "$XBD_ROOT/lib/core.sh"
+# shellcheck source=/dev/null
+. "$XBD_ROOT/lib/actions.sh"
+
+xbd_main "$@"

@@ -1,0 +1,31 @@
+[Unit]
+Description=Chromium for Browser Dialer（Browser Dialer 的运行时依赖，按需启动）
+After=xray-dialer.service
+Wants=xray-dialer.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/opt/xray-browser-dialer/scripts/run-chromium.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=chromium-browser-dialer
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/opt/xray-browser-dialer/runtime /opt/xray-browser-dialer/logs
+
+[Install]
+WantedBy=multi-user.target

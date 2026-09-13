@@ -1,0 +1,36 @@
+[Unit]
+Description=Xray Client（常驻，普通代理模式）
+Documentation=file:/opt/xray-browser-dialer/docs/ARCHITECTURE.md
+After=network-online.target nss-lookup.target
+Wants=network-online.target
+# 刻意不依赖系统自带 xray.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/opt/xray-browser-dialer/scripts/run-xray.sh normal
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=xray-client
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/opt/xray-browser-dialer/runtime /opt/xray-browser-dialer/logs
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

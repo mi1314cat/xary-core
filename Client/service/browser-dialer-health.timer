@@ -1,0 +1,11 @@
+[Unit]
+Description=每 30 秒运行一次 Browser Dialer 心跳
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=30
+AccuracySec=5
+Unit=browser-dialer-health.service
+
+[Install]
+WantedBy=timers.target

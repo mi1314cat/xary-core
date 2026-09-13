@@ -1,0 +1,29 @@
+[Unit]
+Description=Xray Client Web Manager（面板）
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/opt/xray-browser-dialer/scripts/run-panel.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=xbd-panel
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/opt/xray-browser-dialer/runtime /opt/xray-browser-dialer/logs /opt/xray-browser-dialer/config /opt/xray-browser-dialer/nodes /opt/xray-browser-dialer/generated
+
+[Install]
+WantedBy=multi-user.target

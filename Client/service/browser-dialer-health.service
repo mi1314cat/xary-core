@@ -1,0 +1,8 @@
+[Unit]
+Description=Browser Dialer 心跳自愈（仅在 dialer 模式运行时生效）
+After=xray-dialer.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/xray-browser-dialer/scripts/health-check.sh
+Nice=10
