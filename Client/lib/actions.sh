@@ -211,7 +211,8 @@ menu_xray_ensure() {
     ok "已就绪: $("$XBD_XRAY" version 2>/dev/null | head -1)"
     return 0
   fi
-  warn "未找到 $XBD_XRAY"
+
+  # 1) 系统里已有就直接复用一份（不覆盖原文件，只复制）
   local src
   for src in /usr/local/bin/xray /usr/bin/xray; do
     if [ -x "$src" ]; then
@@ -220,7 +221,20 @@ menu_xray_ensure() {
       return 0
     fi
   done
-  info "请先下载官方 Xray 到 $XBD_XRAY，或运行: xbd update"
+
+  # 2) 没有就下载官方版本（全新服务器的主要路径）
+  info "  未找到 Xray，正在下载官方版本…"
+  mkdir -p "$XBD_BIN"
+  if python3 "$XBD_LIBDIR/xrayup.py" update 2>&1 | sed 's/^/  /'; then
+    if [ -x "$XBD_XRAY" ]; then
+      ok "Xray 安装完成: $("$XBD_XRAY" version 2>/dev/null | head -1)"
+      return 0
+    fi
+  fi
+
+  bad "Xray 未就绪，无法继续"
+  info "  可手动下载官方二进制放到: $XBD_XRAY"
+  info "  下载页: https://github.com/XTLS/Xray-core/releases"
   return 1
 }
 
@@ -1077,6 +1091,21 @@ cmd_uninstall() {
   need_root
   local yes=0
   [ "${1:-}" = "--yes" ] && yes=1
+
+  # 安全闸：systemd 单元名是全系统共享的，不随 XBD_PREFIX 变化。
+  # 用自定义前缀（测试/多实例）时如果照常卸载，会删掉**生产环境**的单元。
+  # 这个坑真实踩过：测试用 /tmp/rtest/install 前缀，把生产的 6 个单元删了。
+  if [ "$XBD_PREFIX" != "/opt/xray-browser-dialer" ]; then
+    warn "当前使用自定义前缀: $XBD_PREFIX"
+    warn "systemd 单元名与主安装共用，卸载会影响主安装"
+    info ""
+    info "如需清理这个测试安装，请手动删除目录即可："
+    info "  rm -rf $XBD_PREFIX"
+    info ""
+    info "若确实要卸载主安装，请用默认前缀运行："
+    info "  /opt/xray-browser-dialer/bin/xbd uninstall"
+    return 1
+  fi
   step "将要删除的内容"
   local items=() u
   for u in "$XBD_U_XRAY" "$XBD_U_DIALER" "$XBD_U_CHROMIUM" "$XBD_U_PANEL" "$XBD_U_HEALTH" "$XBD_U_TIMER"; do

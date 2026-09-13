@@ -1,17 +1,79 @@
-# A/ — 最新可上传版本
+# Xray Client
 
-这个目录里的东西就是**当前最新版本**，可以直接上传 GitHub。
+**Xray 常驻客户端 + Browser Dialer 按需增强**，带 Web 面板。
+一个脚本部署，一个命令管理。
+
+---
+
+## 一键部署
+
+在目标服务器上执行**一条命令**：
+
+```bash
+bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/l.sh)
+```
+
+装完会问你要节点链接，粘贴即可。局域网设备连接地址会在末尾输出。
+
+**或者下载压缩包手动装：**
+
+```bash
+curl -LO https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/xbd-client.tar.gz
+tar xzf xbd-client.tar.gz && cd xbd-client
+sudo bash RUN.sh
+```
+
+👉 **详细使用说明看 [RUN.md](RUN.md)** —— 一页讲完，不用读别的。
+
+---
+
+## 它解决什么问题
 
 ```
-A/
-├── xbd-install.sh          ← 单文件自解压安装脚本（想只传一个文件就传它）
-├── bin/xbd                 ← CLI 入口
-├── lib/                    核心模块（Python + shell）
-├── service/  scripts/      systemd 单元与运行脚本
-├── docs/                   文档
-├── VERSION                 版本号
-└── nodes/ config/ ...      运行时目录（部署后使用，上传时可忽略）
+局域网设备 ──┐
+             ├─→ 这台服务器 ──→ 你现有的节点 ──→ Internet
+Windows PC ──┘        │
+                      ├── 普通模式（:1080）   Xray 自己完成 TLS
+                      └── Browser Dialer（:1081）  真实 Chromium 完成 TLS
 ```
+
+* **Xray 常驻**：负责普通代理，永不为 Browser Dialer 让路
+* **Browser Dialer 按需**：点点开关才启动，不用时不运行 Chromium（0 进程）
+* **节点是共享资产**：同一个节点两种用法，不用导入两份
+* **不碰你的环境**：只写自己的目录和自己创建的服务
+
+---
+
+## 命令速查
+
+```bash
+xbd status                  # 状态（含当前连接模式）
+xbd node add "<链接>"        # 加节点（多协议 / 订阅 / 一次多个）
+xbd node list               # 节点列表（含两种能力判定）
+xbd node use <编号>          # 切换节点
+xbd node latency            # 测延时（真实请求）
+xbd dialer on|off           # 启用/关闭 Browser Dialer
+xbd panel                   # 面板地址与令牌
+xbd diagnose                # 全面诊断
+xbd export                  # 导出连接配置
+xbd cert <编号>              # 取服务端证书指纹（自签节点）
+xbd xray check|update       # Xray 内核版本 / 更新
+xbd uninstall               # 安全卸载
+```
+
+---
+
+## 详细文档
+
+| 文档 | 内容 |
+|---|---|
+| [RUN.md](RUN.md) | **使用说明（先看这个）** |
+| [docs/README.md](docs/README.md) | 完整功能与架构 |
+| `docs/ARCHITECTURE.md` | 数据流、端口、环路防护 |
+| `docs/COMPATIBILITY.md` | 各协议的 Browser Dialer 兼容性（含源码依据） |
+| `docs/TROUBLESHOOTING.md` | 排错 |
+
+---
 
 ## 两种分发方式
 
