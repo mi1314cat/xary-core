@@ -5,7 +5,7 @@
 在**目标服务器**上执行**一条命令**：
 
 ```bash
-bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/l.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/mi1314cat/xary-core/main/Client/l.sh)
 ```
 
 它会自动完成全部工作：下载 → 校验 → 解压 → 安 Xray → 分配端口 → 建 systemd 服务 → 启动 →
@@ -19,7 +19,7 @@ bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Clien
 
 ```bash
 # 下载
-curl -LO https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/xbd-client.tar.gz
+curl -LO https://raw.githubusercontent.com/mi1314cat/xary-core/main/Client/xbd-client.tar.gz
 
 # 解压
 tar xzf xbd-client.tar.gz
@@ -128,7 +128,7 @@ sudo bash /opt/xray-browser-dialer/tools/selftest-arch.sh
 **方式一：独立删除脚本**（推荐，不依赖面板/命令）
 
 ```bash
-bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/uninstall-xray-client.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/mi1314cat/xary-core/main/Client/uninstall-xray-client.sh)
 ```
 
 先看会删什么（不动手）：
