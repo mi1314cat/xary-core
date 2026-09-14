@@ -93,7 +93,7 @@ fi
 
 # ---- 2. systemd 单元 ------------------------------------------------------
 # 只删我们的单元名。xray.service / xrayls.service 等一律不在名单里。
-for u in xray-client.service xray-dialer.service chromium-browser-dialer.service \
+for u in xray-client.service chromium-browser-dialer.service \
          browser-dialer-panel.service browser-dialer-health.service browser-dialer-health.timer; do
   if [ -f "/etc/systemd/system/$u" ]; then
     REMOVE_UNITS+=("$u")
