@@ -17,6 +17,7 @@ PORTS="$PREFIX/config/ports.env"
 pass=0; fail=0
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; pass=$((pass+1)); }
 bad()  { printf '  \033[31m✗\033[0m %s\n' "$1"; fail=$((fail+1)); }
+warn_() { printf '  \033[33m!\033[0m %s\n' "$1"; }
 head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 getport() { awk -F= -v k="^$1=" '$0 ~ k {print $2; exit}' "$PORTS" 2>/dev/null; }
@@ -35,6 +36,17 @@ PROBE="https://api.ipify.org"
 # 超时给到 90s：BD 路径每次拨号都要经 Chromium 往返，冷启动更慢。
 ask_socks() { curl -s --max-time 90 --socks5-hostname "$1" "$PROBE" 2>/dev/null; }
 ask_http()  { curl -s --max-time 90 --proxy "http://$1"        "$PROBE" 2>/dev/null; }
+# 刚重启过的 Xray / 刚切换的节点不一定马上能出网，单次探测会给出"假失败"（曾经误报过）。
+ask_socks_retry() {
+  local i r
+  for i in $(seq 1 "${2:-3}"); do
+    r=$(ask_socks "$1"); [ -n "$r" ] && { printf '%s' "$r"; return 0; }
+    sleep 4
+  done
+  return 1
+}
+# 当前节点要不要浏览器：这是**节点属性**，不能像以前那样写死成"实例必须带 BD"。
+WANT_BD=$(python3 "$LIB/compat.py" want-bd "$PREFIX/nodes/current" 2>/dev/null || echo unknown)
 
 # Xray 每次重启都会换 CSRF token，而官方内嵌页面只重试 socket、不重载自己 ——
 # 所以"端口在听"不等于"浏览器已接上"。等 WS 真接上再断言，否则测的是重启瞬间。
@@ -63,11 +75,15 @@ if [ "${n:-0}" -eq 1 ]; then
     *xray*) ok "该 PID 确实是 Xray" ;;
     *)      bad "该 PID 不是 Xray: $prog" ;;
   esac
-  if tr '\0' '\n' < "/proc/$holders/environ" 2>/dev/null | grep -q '^XRAY_BROWSER_DIALER='; then
-    ok "该实例带 XRAY_BROWSER_DIALER（Browser Dialer 是节点属性而非模式）"
-  else
-    bad "该实例没有 XRAY_BROWSER_DIALER —— 依赖浏览器拨号的节点会退化成 Xray 自带 TLS"
-  fi
+  has_bd=no
+  tr '\0' '\n' < "/proc/$holders/environ" 2>/dev/null | grep -q '^XRAY_BROWSER_DIALER=' && has_bd=yes
+  case "$WANT_BD:$has_bd" in
+    yes:yes) ok "当前节点要浏览器，实例也带着 XRAY_BROWSER_DIALER（节点属性，不是模式）" ;;
+    no:no)   ok "当前节点不要浏览器，实例也**没有** XRAY_BROWSER_DIALER（进程级开关跟着节点走）" ;;
+    yes:no)  bad "当前节点要浏览器，实例却没有 XRAY_BROWSER_DIALER —— 会退化成 Xray 自带 TLS" ;;
+    no:yes)  warn_ "当前节点不要浏览器，实例仍带着 XRAY_BROWSER_DIALER（对当前节点无影响，但说明没跟着节点重启）" ;;
+    *)       warn_ "节点判定失败（want-bd=$WANT_BD），跳过这条" ;;
+  esac
 else
   bad "两个入口被 $n 个进程分别监听（$holders）—— 架构回到了双实例"
 fi
@@ -78,11 +94,11 @@ dups=$(ss -H -lntH 2>/dev/null | awk '{print $4}' | sort | uniq -d | grep -c . |
 
 # ---------------------------------------------------------------------------
 head_ "2. 两个入口出口必须一致（同一实例 ⇒ 同一节点 ⇒ 同一出口）"
-if ! wait_ws 30; then
-  bad "等不到浏览器接上（0 条 WS）—— 先执行: xbd dialer on"
-elif [ "$(python3 "$LIB/compat.py" json "$PREFIX/nodes/current" 2>/dev/null \
-        | python3 -c 'import sys,json;print(json.load(sys.stdin).get("can_use_dialer"))' 2>/dev/null)" = "True" ]; then
+if [ "$WANT_BD" = yes ]; then
   echo "  当前节点依赖浏览器，探测走 Browser Dialer 路径（较慢，请稍候）"
+  wait_ws 30 || bad "等不到浏览器接上（0 条 WS）—— 先执行: xbd dialer on"
+else
+  echo "  （当前节点不走浏览器，跳过 WS 等待）"
 fi
 a=$(ask_socks "$LAN:$SOCKS_PORT")
 b=$(ask_http  "$LAN:$HTTP_PORT")
@@ -115,9 +131,14 @@ for f in sorted(os.listdir(ndir)):
     try: n = json.load(open(p))
     except Exception: continue
     try:
-        if m.check_all(n).get("can_use_xray") and not m.check_all(n).get("can_use_dialer"):
-            print(p); break
-    except Exception: pass
+        a = m.check_all(n)
+    except Exception:
+        continue
+    # 必须是"协议层面就不可能走浏览器"的节点（hysteria / raw / reality 这类）。
+    # 不能用 can_use_dialer：实测失败的 ws 节点也是 False，但它属于"必须用原生"的另一类，
+    # 拿它来测"普通节点不被浏览器拖累"会得到假失败（真踩过）。
+    if a.get("can_use_xray") and not a.get("protocol_may_dialer"):
+        print(p); break
 PY
 )
   if [ -z "$plain" ]; then
@@ -146,11 +167,15 @@ PY
     systemctl restart xray-client.service 2>/dev/null || true; sleep 5
     systemctl stop chromium-browser-dialer.service 2>/dev/null || true; sleep 4
     ws=$(ss -H -tn 2>/dev/null | grep -c ":$(( ${CH_ADDR##*:} ))\b" || true)
-    r=$(ask_socks "$LAN:$SOCKS_PORT")
+    r=$(ask_socks_retry "$LAN:$SOCKS_PORT" 3)
     if [ -n "$r" ] && [ "${ws:-0}" -eq 0 ]; then
       ok "Chromium 完全停掉（0 条 WS）仍能出网: $r"
     else
       bad "Chromium 停掉后出网失败（rc/出口=${r:-空}，WS=$ws）—— 普通节点被 Browser Dialer 拖累"
+      echo "    诊断: 服务状态 xray=$(systemctl is-active xray-client.service) chromium=$(systemctl is-active chromium-browser-dialer.service)"
+      echo "    诊断: PID=$(systemctl show -p MainPID --value xray-client.service) 节点=$(readlink -f "$PREFIX/nodes/current" | xargs -r basename)"
+      echo "    诊断: $(curl -sS --max-time 25 --socks5-hostname "$LAN:$SOCKS_PORT" "$PROBE" 2>&1 | head -2)"
+      echo "    诊断: env=$(tr '\0' '\n' < "/proc/$(systemctl show -p MainPID --value xray-client.service)/environ" 2>/dev/null | grep -c '^XRAY_BROWSER_DIALER=' || echo 0)"
     fi
 
     # 还原：切回原节点。若原节点需要浏览器，xbd node use 应自动把它拉起来。
@@ -169,7 +194,7 @@ PY
     [ "$timer_was" = active ] && systemctl start browser-dialer-health.timer 2>/dev/null || true
     if [ "$BD_CUR" = "True" ]; then
       wait_ws 40 || true
-      r2=$(ask_socks "$LAN:$SOCKS_PORT")
+      r2=$(ask_socks_retry "$LAN:$SOCKS_PORT" 3)
       if [ -n "$r2" ]; then
         ok "切回原节点后出网正常（Xray 重启已自动带着 Chromium 重启）: $r2"
       else
@@ -177,7 +202,7 @@ PY
       fi
     else
       systemctl restart xray-client.service 2>/dev/null || true; sleep 6
-      r2=$(ask_socks "$LAN:$SOCKS_PORT")
+      r2=$(ask_socks_retry "$LAN:$SOCKS_PORT" 3)
       [ -n "$r2" ] && ok "已切回原节点并恢复出网: $r2" || bad "切回原节点后出网失败"
     fi
   fi
@@ -197,6 +222,30 @@ if [ "$bd" = "True" ]; then
   fi
 else
   echo "  （当前节点不需要浏览器，跳过）"
+fi
+
+# ---------------------------------------------------------------------------
+head_ "5. 换节点必须真的生效：运行配置里的出站 == nodes/current"
+# 回归断言。曾经 `xbd node use` 只改了软链接、不重新生成配置也不重启，于是
+# "界面上节点已切好、实际流量还走旧节点" —— 从 hysteria 换到 hysteria 时浏览器
+# 开关没变，连"按需重启"都不会触发，完全静默。判据必须落在**运行配置**上。
+_out() {   # $1=json 文件（运行配置或节点文件）→ address:port
+  python3 -c 'import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    print(""); raise SystemExit
+s = d["outbounds"][0].get("settings") or {} if "outbounds" in d else d
+print("%s:%s" % (s.get("address", ""), s.get("port", "")))' "$1" 2>/dev/null
+}
+run_out=$(_out "$PREFIX/runtime/xray-client.json")
+cur_out=$(_out "$PREFIX/nodes/current")
+if [ -n "$run_out" ] && [ "$run_out" = "$cur_out" ]; then
+  ok "运行配置与当前节点一致（$run_out）"
+elif [ -z "$run_out" ] || [ -z "$cur_out" ]; then
+  bad "读不到运行配置或当前节点（run=${run_out:-空} cur=${cur_out:-空}）"
+else
+  bad "运行配置与当前节点不一致：运行=${run_out} 当前=${cur_out} —— 执行 xbd apply && xbd restart"
 fi
 
 echo
