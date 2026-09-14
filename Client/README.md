@@ -10,7 +10,7 @@
 在目标服务器上执行**一条命令**：
 
 ```bash
-bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/l.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/mi1314cat/xary-core/main/Client/l.sh)
 ```
 
 装完会问你要节点链接，粘贴即可。局域网设备连接地址会在末尾输出。
@@ -18,7 +18,7 @@ bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Clien
 **或者下载压缩包手动装：**
 
 ```bash
-curl -LO https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/xbd-client.tar.gz
+curl -LO https://raw.githubusercontent.com/mi1314cat/xary-core/main/Client/xbd-client.tar.gz
 tar xzf xbd-client.tar.gz && cd xbd-client
 sudo bash RUN.sh
 ```
@@ -30,19 +30,19 @@ sudo bash RUN.sh
 ## 一键卸载
 
 ```bash
-bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/uninstall-xray-client.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/mi1314cat/xary-core/main/Client/uninstall-xray-client.sh)
 ```
 
 先看会删什么、不动手：
 
 ```bash
-bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/uninstall-xray-client.sh) --dry-run
+bash <(curl -Ls https://raw.githubusercontent.com/mi1314cat/xary-core/main/Client/uninstall-xray-client.sh) --dry-run
 ```
 
 保留节点配置再删（备份到 `/root/xbd-nodes-backup-<时间>.tar.gz`）：
 
 ```bash
-bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/uninstall-xray-client.sh) --keep-nodes
+bash <(curl -Ls https://raw.githubusercontent.com/mi1314cat/xary-core/main/Client/uninstall-xray-client.sh) --keep-nodes
 ```
 
 独立脚本，不依赖面板与 `xbd` 命令 —— 即使安装已损坏也能跑。
@@ -113,7 +113,7 @@ cd /path/to/project
 ### 方式二：一键脚本 / 发布包
 
 ```bash
-bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/l.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/mi1314cat/xary-core/main/Client/l.sh)
 ```
 
 `l.sh` 下载 `Client/xbd-client.tar.gz` → 校验 SHA256 → 解压 → 调 `RUN.sh` 安装。
