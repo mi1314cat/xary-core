@@ -41,17 +41,19 @@ def main() -> int:
         print('  还没有节点。用: xbd node add "<uri>"')
         return 1
 
-    # _compat 缺失时按需计算（老节点迁移过来没有这个字段）
+    # 判定一律**实时计算**，不用文件里可能过期的 _compat 缓存。
+    # 为什么：缓存是导入那一刻写下的，之后 Xray 升级或判定逻辑改了它不会更新 ——
+    # 于是两个内容完全相同的节点会一个显示"支持"、一个显示"不支持"（实测踩过），
+    # 而被信以为真的恰恰是那个错的旧值。
     compat_mod = None
     for n in nodes:
-        if not n.get("compat"):
-            try:
-                if compat_mod is None:
-                    compat_mod = load_compat_module()
-                path = os.path.join(PREFIX, "nodes", n["file"])
-                n["compat"] = compat_mod.check_all(json.load(open(path)))
-            except Exception:
-                n["compat"] = {}
+        try:
+            if compat_mod is None:
+                compat_mod = load_compat_module()
+            path = os.path.join(PREFIX, "nodes", n["file"])
+            n["compat"] = compat_mod.check_all(json.load(open(path)))
+        except Exception:
+            n["compat"] = {}
 
     head = f'{"#":<4}{"":<3}{"名称":<30}{"协议":<13}{"传输":<11}{"Xray":<11}Browser Dialer'
     print("  " + head)
