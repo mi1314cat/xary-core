@@ -48,6 +48,15 @@ if [ "$HERE" != "$PREFIX" ]; then
   ok "文件已复制到 $PREFIX"
 fi
 
+# 运行时状态目录：**包里刻意不带**（它们不是发布内容），但必须在这里建出来。
+# 漏建的后果实测过：runtime/ 缺失 → 生成配置时 FileNotFoundError →
+# `xbd start` 直接报「配置生成失败，这是致命的」，即"装完用不了"。
+#   runtime/   生成的 xray 配置（genconfig 的落点）
+#   logs/      Xray 的 access/error 日志目录
+#   generated/ xbd export 的导出目录
+#   config/ nodes/ backup/  端口、面板令牌、节点、备份
+mkdir -p "$PREFIX"/{config,logs,nodes,generated,runtime,backup}
+
 # 权限必须显式设定（umask 会让 systemd 报 203/EXEC）
 chmod 0755 "$PREFIX/bin/xbd" 2>/dev/null || true
 chmod 0755 "$PREFIX"/scripts/*.sh "$PREFIX"/lib/*.sh 2>/dev/null || true
