@@ -43,7 +43,6 @@ MIRROR_DIRS=(
   "https://github.com/$REPO/raw/refs/heads/$REF/$SUBDIR"
 )
 ARCHIVE_URL="${XBD_ARCHIVE:-${MIRROR_DIRS[0]}/$ARCHIVE_NAME}"
-SHA_URL="$ARCHIVE_URL.sha256"
 
 if [ -t 1 ]; then
   R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; B=$'\033[36m'; D=$'\033[2m'; O=$'\033[0m'
@@ -76,7 +75,6 @@ while [ $# -gt 0 ]; do
         "https://github.com/$REPO/raw/refs/heads/$REF/$SUBDIR"
       )
       ARCHIVE_URL="${MIRROR_DIRS[0]}/$ARCHIVE_NAME"
-      SHA_URL="$ARCHIVE_URL.sha256"
       shift 2 ;;
     --prefix)   PREFIX="${2:-}"; shift 2 ;;
     -h|--help)
@@ -162,32 +160,54 @@ fetch_any() {   # $1=包内文件名  $2=输出路径
   return 1
 }
 
-step "下载发布包"
+step "下载发布包并校验"
 WORKDIR=$(mktemp -d /tmp/xbd-deploy-XXXXXX)
 [ -n "$WORKDIR" ] || die "无法创建临时目录"
 TARBALL="$WORKDIR/$ARCHIVE_NAME"
+SHAFILE="$WORKDIR/.sha"
 
 probe_channel
-if ! fetch_any "$ARCHIVE_NAME" "$TARBALL"; then
-  die "所有镜像都下载失败（${MIRROR_DIRS[*]}）—— 检查网络，或用 XBD_ARCHIVE 指定其它地址"
-fi
 
-size=$(wc -c < "$TARBALL" 2>/dev/null || echo 0)
-[ "$size" -gt 10000 ] || die "下载内容异常（$size 字节）"
-ok "已下载 $(du -h "$TARBALL" | cut -f1)"
-
-step "校验完整性"
-got=$(sha256sum "$TARBALL" | awk '{print $1}')
-if fetch_any "$ARCHIVE_NAME.sha256" "$WORKDIR/.sha" 2>/dev/null && [ -s "$WORKDIR/.sha" ]; then
-  want=$(tr -d ' \n\r' < "$WORKDIR/.sha")
-  if [ "$want" = "$got" ]; then
-    ok "SHA256 校验通过"
-  else
-    die "SHA256 不匹配（期望 ${want:0:16}… 实际 ${got:0:16}…），已中止"
+# 包和它的 .sha256 **必须来自同一个镜像、当成一对**来校验。
+# 为什么：raw.githubusercontent.com 是 CDN，max-age=300 —— 刚发布完的几分钟里，
+# 两个文件可能一个新一个旧（实测：包是新的、.sha256 还是上一版），
+# 于是校验必然失败并中止安装，报错还像"文件损坏"。
+# 逐个镜像试一对，谁的两个文件自洽就用谁；都不自洽再逐个快照重试一次。
+ok_dl=0
+for u in "${MIRROR_DIRS[@]}"; do
+  fetch "$u/$ARCHIVE_NAME" "$TARBALL" || { warn "  镜像不可用: $u"; continue; }
+  size=$(wc -c < "$TARBALL" 2>/dev/null || echo 0)
+  [ "$size" -gt 10000 ] || { warn "  内容异常（$size 字节）: $u"; continue; }
+  if ! fetch "$u/$ARCHIVE_NAME.sha256" "$SHAFILE" || [ ! -s "$SHAFILE" ]; then
+    warn "  缺校验文件: $u/$ARCHIVE_NAME.sha256"; continue
   fi
-else
-  warn "未取到 .sha256，跳过校验（本地值 ${got:0:16}…）"
+  want=$(tr -d ' \n\r' < "$SHAFILE")
+  got=$(sha256sum "$TARBALL" | awk '{print $1}')
+  if [ "$want" = "$got" ]; then
+    ok "已下载并校验通过 $(du -h "$TARBALL" | cut -f1)（来源 ${u##*/gh/}）"
+    ok_dl=1
+    break
+  fi
+  warn "  校验不匹配（期望 ${want:0:16}… 实际 ${got:0:16}…）—— 该镜像可能正在同步，换下一个"
+done
+
+# 全都不匹配：可能刚好卡在 CDN 同步窗口里，等一会儿把镜像再走一遍
+if [ "$ok_dl" -eq 0 ]; then
+  warn "所有镜像都没给出自洽的一对，20 秒后重试一轮（刚发布时 CDN 需要时间同步）"
+  sleep 20
+  for u in "${MIRROR_DIRS[@]}"; do
+    fetch "$u/$ARCHIVE_NAME" "$TARBALL" 2>/dev/null || continue
+    fetch "$u/$ARCHIVE_NAME.sha256" "$SHAFILE" 2>/dev/null || continue
+    [ -s "$SHAFILE" ] || continue
+    want=$(tr -d ' \n\r' < "$SHAFILE"); got=$(sha256sum "$TARBALL" | awk '{print $1}')
+    [ "$want" = "$got" ] && { ok "重试后校验通过（$u）"; ok_dl=1; break; }
+  done
 fi
+[ "$ok_dl" -eq 1 ] || die "下载的包与它的 .sha256 始终对不上（已试 ${#MIRROR_DIRS[@]} 个镜像各两轮）——
+  这种情况通常出现在刚发布后的 CDN 同步窗口，等 5 分钟再试即可；
+  也可以用 XBD_ARCHIVE=<压缩包地址> 指定一个已知良好的地址。"
+
+
 
 step "解压"
 mkdir -p "$WORKDIR/src"
