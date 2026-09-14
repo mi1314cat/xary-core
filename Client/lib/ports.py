@@ -26,8 +26,7 @@ PREFIX = os.environ.get("XBD_PREFIX", "/opt/xray-browser-dialer")
 # 所有端口及其用途。order 决定分配顺序。
 # scope: lan = 局域网可达（只绑本机 LAN 地址）；loopback = 只绑回环
 PORT_SPECS = [
-    ("PORT_NORMAL",   "LAN SOCKS5（普通模式）",   "lan",      1080),
-    ("PORT_DIALER",   "LAN SOCKS5（Browser Dialer）", "lan",  1081),
+    ("PORT_NORMAL",   "LAN SOCKS5（全部节点）",   "lan",      1080),
     ("PORT_HTTP",     "本机 HTTP 代理（docker 等）", "loopback", 10808),
     ("PORT_LAN_HTTP", "局域网 HTTP 代理（WiFi 设置）", "lan", 10809),
     ("DIALER_ADDR",   "Xray↔Chromium 内部通道",   "loopback", 18081),
@@ -110,7 +109,7 @@ def pick_free(preferred: int, host: str, tries: int = 200, taken: set | None = N
     """从 preferred 开始找一个既能绑定又没被占用的端口。
 
     taken：本次分配中已经选走的端口 —— 必须排除，
-    否则会出现两个服务抢同一个端口（之前 NORMAL 和 DIALER 都选了 1081）。
+    否则会出现两个入站抢同一个端口（历史上 NORMAL 和 DIALER 就撞过 1081）。
     """
     bad = forbidden() | (taken or set())
     for p in range(preferred, preferred + tries):
