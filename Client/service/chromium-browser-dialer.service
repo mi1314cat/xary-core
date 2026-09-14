@@ -1,7 +1,11 @@
 [Unit]
 Description=Chromium for Browser Dialer（Browser Dialer 的运行时依赖，按需启动）
-After=xray-dialer.service
-Wants=xray-dialer.service
+After=xray-client.service
+Wants=xray-client.service
+# Xray 每次启动都会换 CSRF token，而官方内嵌页面只重试 socket、不重载自己 ——
+# 于是旧 WS 连接会**挂着但已失效**（连接数不为 0，看起来"健康"）。
+# 所以 Xray 停/重启时，Chromium 必须跟着停/重启，否则依赖浏览器拨号的节点会静默失效。
+PartOf=xray-client.service
 StartLimitIntervalSec=0
 
 [Service]
