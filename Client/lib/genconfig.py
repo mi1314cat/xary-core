@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 NORMAL, DIALER = "normal", "dialer"
@@ -358,6 +359,13 @@ def main() -> int:
             fail(f"节点缺少字段 {key!r}")
 
     cfg = build(node, args)
+    # 输出目录自己建：这里是所有调用路径的公共落点（RUN.sh 建的布局、xbd apply、
+    # 服务启动脚本 run-xray.sh），目录缺失时不能指望调用方自觉。
+    # 实测踩过：全新安装漏建 runtime/ 时这里直接 FileNotFoundError，
+    # 上层只看到「配置生成失败，这是致命的」—— 装完就用不了。
+    out_dir = os.path.dirname(os.path.abspath(args.output))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     with open(args.output, "w") as fh:
         json.dump(cfg, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
