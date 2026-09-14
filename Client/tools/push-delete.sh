@@ -26,6 +26,9 @@ DRY=0
 TARGETS=(
   "Client/1"                 # 1 字节占位文件（内容就是换行），早期残留
   "Client/docs/RUN.md"       # 与根 RUN.md 字节完全相同的纯冗余副本
+  # 已废弃的"独立 dialer 实例"单元。留着它会把架构退回双实例（两个 Xray 抢端口），
+  # make-release.sh 已明令禁止它再进包；仓库里同样危险 —— 有人照着仓库装就会跑起两个实例。
+  "Client/service/xray-dialer.service"
 )
 
 TOKEN="${GITHUB_TOKEN:-}"
@@ -124,7 +127,8 @@ import sys,json
 d=json.load(sys.stdin)
 if isinstance(d,dict): print("  ",d.get("message"))
 else:
-    for e in sorted(d,key=lambda x:x["name"]): print(f"  {e[\"type\"]:5s} {e[\"name\"]:32s} {e.get(\"size\",\"\")}")
+    for e in sorted(d,key=lambda x:x["name"]):
+        print("  %-5s %-32s %s" % (e["type"], e["name"], e.get("size","")))
     print("  共",len(d),"项")'
 
 [ "$fail" -eq 0 ]
