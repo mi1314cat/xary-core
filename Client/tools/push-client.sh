@@ -41,9 +41,13 @@ fi
 api() {  # api <METHOD> <PATH> [JSON_BODY]
   local m="$1" p="$2" body="${3:-}"
   if [ -n "$body" ]; then
-    curl -sS --max-time 120 -X "$m" -H "Authorization: Bearer $TOKEN" \
+    # 从 stdin 传 body，不用 -d "$body"：
+    # 大文件的 base64 会超过命令行长度上限（实测报 "Argument list too long"），
+    # 而那个错误发生在 curl 启动之前，表现为空响应 → 被当成 badjson。
+    printf '%s' "$body" | curl -sS --max-time 300 -X "$m" \
+      -H "Authorization: Bearer $TOKEN" \
       -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
-      -d "$body" "$API$p"
+      --data-binary @- "$API$p"
   else
     curl -sS --max-time 120 -X "$m" -H "Authorization: Bearer $TOKEN" \
       -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$API$p"
