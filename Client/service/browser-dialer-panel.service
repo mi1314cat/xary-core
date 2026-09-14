@@ -22,8 +22,19 @@ ProtectKernelModules=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-ReadWritePaths=/opt/xray-browser-dialer/runtime /opt/xray-browser-dialer/logs /opt/xray-browser-dialer/config /opt/xray-browser-dialer/nodes /opt/xray-browser-dialer/generated
+# 面板要执行 nft（接管局域网），而 nftables 走 netlink ——
+# 少了 AF_NETLINK 会报 "Unable to initialize Netlink socket"，
+# 界面表现就是"点了没反应"。其余保持收紧。
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+# ProtectSystem=full 会把 /etc 与 /usr 挂成只读 —— 这对服务本身是好事，
+# 但面板要代表用户执行"接管本机 / 接管局域网"，那些动作**必须**写 /etc：
+#   /etc/profile.d/                     shell 代理环境变量
+#   /etc/systemd/system/docker.service.d  docker 的代理覆盖
+# 只放行这两个目录，其余 /etc 仍然只读。曾经漏了这两条，表现为：
+#   点「接管本机」→ 界面毫无变化（动作其实失败了）→
+#   日志里报 "/etc/profile.d/proxy.sh: Read-only file system"。
+# 排查了很久才定位到是单元加固，不是功能没做。
+ReadWritePaths=/opt/xray-browser-dialer/runtime /opt/xray-browser-dialer/logs /opt/xray-browser-dialer/config /opt/xray-browser-dialer/nodes /opt/xray-browser-dialer/generated /etc/profile.d /etc/systemd/system/docker.service.d
 
 [Install]
 WantedBy=multi-user.target
