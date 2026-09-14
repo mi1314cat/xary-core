@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""模式感知的 Xray 配置生成器。
+"""Xray 配置生成器。
 
-同一个节点、两种用法，生成**两份不同实例**的运行配置（需求第七、十条）：
+线上的唯一实例一律用 `--mode normal`，**同时**提供 SOCKS 与 HTTP 两个入站，
+进程始终带 XRAY_BROWSER_DIALER —— 于是"用不用浏览器"完全由节点决定，不需要第二个
+实例、第二个端口。详见 scripts/run-xray.sh。
 
-    --mode normal   常驻实例：SOCKS :1080 → 节点（Xray 自己完成 TLS）
-    --mode dialer   按需实例：SOCKS :1081 → 节点（TLS 交给 Chromium）
-
-这样：
-    * 关闭 Browser Dialer 只需停掉 dialer 实例，常驻实例完全不受影响；
-    * 两种模式可以同时存在，互不干扰，也不会产生代理环路。
+`--mode dialer` 只剩一个用途：`xbd ech` 的 ECH 诊断需要一份"TLS 由浏览器完成、只
+监听回环临时端口"的探针配置。它做两件 normal 不会做的事：
+    * 丢弃 flow（vision/xtls）：JS 网络栈不支持；
+    * 把 websocket/xhttp 的自定义 Host 换回地址 —— 浏览器发出的 Host 必须等于 SNI，
+      否则 TLS 对不上（见 transport/internet/websocket/dialer.go 的同域规则）。
+请不要把这个模式接回线上服务。
 
 不写入的东西（有意为之）：
-    * flow（vision/xtls）：JS 网络栈不支持，dialer 模式丢弃
-    * allowInsecure：dialer 模式下由 Chromium 校验，写了也无效
+    * allowInsecure：已由 pinnedPeerCertSha256 取代
     * echSettings：dialer 模式下 TLS 由 Chromium 完成，Xray 的 ECH 配置不生效
 """
 from __future__ import annotations
@@ -23,7 +24,11 @@ import sys
 
 NORMAL, DIALER = "normal", "dialer"
 
-# dialer 模式支持的传输（浏览器只能发 HTTP(S)）
+# WebSocket early data 默认长度。官方 browser_dialer 文档推荐 ?ed=2048，
+# 而且实测它是浏览器转发下 ws 能用的前提（缺了会让内嵌页面抛 TypeError）。
+WS_ED_DEFAULT = 2048
+
+# TLS 交给浏览器的模式只支持这些传输（浏览器只能发 HTTP(S)）
 DIALER_TRANSPORTS = {"xhttp", "websocket"}
 
 
@@ -70,7 +75,21 @@ def build_stream(node: dict, mode: str) -> dict:
                 stream["tlsSettings"] = tls_h
         return stream
 
-    stream: dict = {"network": transport}
+    # 传输字段名随版本变化，**必须两个都写**：
+    #   v26.3.27 及更早 -> 只认 streamSettings.network（method 被整体静默丢弃）
+    #   main / 26.9.9+  -> 认 method；官方 transport.md 里 network 已完全不出现
+    #
+    # 实测依据（26.3.27 逐变体对照）：
+    #   network:"xhttp"        -> 正常出网，日志 XHTTP is dialing to tcp
+    #   method:"xhttp" 单独写   -> 退回裸 TCP（与"两个都不写"逐字节相同）
+    #   network + method 双写   -> 与只写 network 逐字节相同（无副作用）
+    # 注意 26.3.27 会**静默丢弃未知 streamSettings 字段**（连杜撰字段名都 Configuration OK），
+    # 所以"method 被接受"是假阳性，不能据此认为它生效。
+    #
+    # 为什么非 hysteria 分支也必须双写：它以前只写 network。一旦升级到 network
+    # 被移除的版本，**所有非 hysteria 节点会静默退回 raw TCP** —— 不报错、起得来，
+    # 只是连不上，属于最难排查的一类退化。
+    stream: dict = {"network": transport, "method": transport}
 
     if security == "tls":
         tls: dict = {"serverName": node.get("sni") or node.get("address", "")}
@@ -120,6 +139,18 @@ def build_stream(node: dict, mode: str) -> dict:
         ws: dict = {"path": node.get("path") or "/"}
         if node.get("host"):
             ws["host"] = node["host"]
+        # early data（?ed=N）。官方 browser_dialer 文档推荐 2048，且这里是**必须**的：
+        # 浏览器转发下若 ed 缺失，Xray 发给内嵌页面的 WS 任务里就没有 extra 字段，
+        # 而页面要读 task.extra.protocol -> TypeError -> ws 节点在浏览器路径下必然失败。
+        # 实测：同一个节点 path 不带 ed 必失败、带 ?ed=2048 立刻出网；原生路径两者都正常。
+        # ed 只能通过 URL 查询串生效（实测：wsSettings.ed / earlyData / edMax 等字段全部无效），
+        # 所以这里拼到 path 上。原生路径下也验证可用，不会造成回归。
+        ed = node.get("ws_ed") or 0
+        if ed <= 0:
+            ed = WS_ED_DEFAULT
+        if ed > 0 and "ed=" not in str(ws["path"]):
+            sep = "&" if "?" in ws["path"] else "?"
+            ws["path"] = f"{ws['path']}{sep}ed={int(ed)}"
         stream["wsSettings"] = ws
     elif transport == "grpc":
         stream["grpcSettings"] = {"serviceName": node.get("service_name") or ""}
@@ -194,12 +225,27 @@ def build(node: dict, args) -> dict:
     mode = args.mode
     port = args.port if args.port is not None else (args.port_dialer if mode == DIALER else args.port_normal)
 
-    # 直连豁免：节点自身域名 + 私网必须走 freedom，避免将来启用 TUN/透明代理后形成环路
-    direct_domains = []
+    # 直连豁免：节点自身域名 + 私网必须走 freedom，避免将来启用 TUN/透明代理后形成环路。
+    #
+    # 必须区分域名 / IPv4 / IPv6 三种，不能只看"是不是全数字"：
+    # IPv6 字面量（如 2001:470:c:c22::1）含冒号，去掉点后当然不是全数字，
+    # 于是被当成域名拼成 `domain:2001:470:c:c22::1` —— 那是个永不匹配的垃圾规则，
+    # 结果 IPv6 节点反而**没有**直连豁免，将来开了 TUN 就会形成环路。
+    #
+    # 另外 Xray 的 domain 字段不认 IP，IP 必须放进 ip 字段，所以两个列表要分开。
+    direct_domains, direct_ips = [], []
     for key in ("address", "host", "sni"):
-        v = node.get(key)
-        if v and not v.replace(".", "").isdigit():
-            direct_domains.append("domain:" + v)
+        v = (node.get(key) or "").strip()
+        if not v:
+            continue
+        if ":" in v:                        # IPv6 字面量
+            direct_ips.append(v)
+        elif v.replace(".", "").isdigit():  # IPv4 字面量
+            direct_ips.append(v)
+        else:                               # 域名
+            direct_domains.append(v)
+    if direct_ips:
+        direct_ips.append("geoip:private")  # 私网同样豁免
 
     inbounds = [{
         "tag": f"socks-{mode}",
@@ -270,10 +316,14 @@ def build(node: dict, args) -> dict:
             "domainStrategy": "AsIs",
             "rules": [
                 {"type": "field", "inboundTag": ["api-in"], "outboundTag": "api"},
-                # 绝不代理自己：节点域名与私网直连（环路防护）
+                # 绝不代理自己：节点域名/自身 IP 与私网直连（环路防护）。
+                # domain 与 ip 必须分成两条规则 —— Xray 的 domain 字段不认 IP 字面量。
+                # 私网归在 ip 规则里；没有 IP 需要豁免时，单独出一条 geoip:private。
                 *([{"type": "field", "outboundTag": "direct",
                     "domain": sorted(set(direct_domains))}] if direct_domains else []),
-                {"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]},
+                *([{"type": "field", "outboundTag": "direct",
+                    "ip": sorted(set(direct_ips))}] if direct_ips
+                  else [{"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]}]),
                 {"type": "field", "outboundTag": "proxy", "network": "tcp,udp"},
             ],
         },
