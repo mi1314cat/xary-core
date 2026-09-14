@@ -24,7 +24,16 @@ set -uo pipefail
 REPO="mi1314cat/xary-core"
 REF="${XBD_REF:-main}"
 SUBDIR="Client"
-ARCHIVE_NAME="xbd-client.tar.gz"
+# 归档双格式：优先 .tar.xz（小约 22%），本机没有 xz 命令就回退 .tar.gz。
+# 刻意保留 gzip 回退：xz 在多数发行版都有，但 Alpine 精简镜像可能缺，
+# 宁可多传一个包，也不要让"装不上"这种事发生。
+if command -v xz >/dev/null 2>&1; then
+  ARCHIVE_NAME="xbd-client.tar.xz"
+  TAR_FLAG="-J"
+else
+  ARCHIVE_NAME="xbd-client.tar.gz"
+  TAR_FLAG="-z"
+fi
 PREFIX="${XBD_PREFIX:-/opt/xray-browser-dialer}"
 LOG="/tmp/xbd-deploy-$(date +%H%M%S).log"
 
@@ -160,7 +169,9 @@ fi
 
 step "解压"
 mkdir -p "$WORKDIR/src"
-tar xzf "$TARBALL" -C "$WORKDIR/src" || die "解压失败（压缩包可能损坏）"
+# shellcheck disable=SC2086
+tar x${TAR_FLAG#-}f "$TARBALL" -C "$WORKDIR/src" \
+  || die "解压失败（压缩包可能损坏，或缺少 ${ARCHIVE_NAME##*.} 解压工具）"
 [ -f "$WORKDIR/src/RUN.sh" ] || die "压缩包结构异常：缺少 RUN.sh"
 ok "已解压"
 
