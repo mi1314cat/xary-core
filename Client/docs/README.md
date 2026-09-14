@@ -1,184 +1,172 @@
-# Xray Browser Dialer Client
+# 架构与兼容性
 
-**一个文件**，让一台 Linux 服务器成为 Browser Dialer 网关：
-局域网设备（Windows Mihomo 等）→ 这台服务器的 SOCKS5 → **本机真实 Chromium 完成 TLS**
-→ 你现有的节点。这正是 Xray 官方的 Browser Dialer 机制，不是 `fingerprint: chrome` 伪装。
-
-## 用法
-
-```bash
-# 上传到服务器后，直接跑
-chmod +x xray-browser-dialer.sh
-./xray-browser-dialer.sh install
-
-# 或者装的时候就把节点带上
-./xray-browser-dialer.sh install --vless "vless://UUID@host:443?encryption=none&security=tls&type=xhttp&path=/xx&sni=host"
-```
-
-装完打开面板（地址和令牌会打印出来）：
-
-```bash
-./xray-browser-dialer.sh panel
-```
-
-之后所有操作都能在面板里完成：看状态、加节点、切节点、改端口、启停服务、跑诊断。
-
-## 它可以做什么
-
-```
-./xray-browser-dialer.sh <命令>
-
-  install [--no-start] [--vless "vless://..."]   安装（幂等，可顺带导入节点）
-  add "vless://..."                              添加节点（也支持 Xray JSON / Mihomo YAML）
-  list / use <编号>                               节点列表 / 切换当前节点
-  check [节点]                                    静态兼容性检查
-  port [端口]                                     查看/修改 LAN SOCKS5 端口
-  start | stop [--all] | restart                  生命周期
-  status                                          状态摘要
-  diagnose [--quick]                              全面诊断
-  panel                                           面板地址与访问令牌
-  config | mihomo                                 生成运行配置 / Mihomo 片段
-  update                                          只更新本项目组件
-  uninstall                                       安全卸载（先列清单再删）
-  selftest                                        内置自检
-```
-
-## Browser Dialer 兼容性（实测结论）
-
-| transport | 结果 | 说明 |
-|---|---|---|
-| XHTTP | ✅ | 官方支持，HTTP 版本由 Chromium 决定 |
-| WebSocket | ✅ | 官方支持，early data 走 `Sec-WebSocket-Protocol` |
-| TCP / gRPC / H2 / mKCP / QUIC / HTTPUpgrade | ❌ | 浏览器只能发 HTTP(S)，无对应实现 |
-| REALITY | ❌ | `splithttp/dialer.go` 仅在 `realityConfig == nil` 时启用 Browser Dialer |
-
-另外要求 `SNI == Host == Address` 且 address 是域名；TLS 由 Chromium 校验，
-所以 `allowInsecure` / `skip-cert-verify` / `fingerprint` 都无效。
-本项目**只报告问题，绝不自动修改节点参数，也不碰服务端**。
-
-## 架构
-
-```
-Windows Mihomo → (LAN) → 本机 SOCKS5 (192.168.x.x:1080)
-                              ↓
-                         Xray 客户端（不做 TLS）
-                              ↓
-              Browser Dialer（Xray 内建，XRAY_BROWSER_DIALER=127.0.0.1:18081）
-                              ↓  WS 回连 + fetch 转发
-                  headless Chromium ← 真正发起 TLS 的一方
-                              ↓
-                         现有节点 → Internet
-```
-
-三个 systemd 单元：`xray-browser-client` / `chromium-browser-dialer` / `browser-dialer-panel`，
-外加一个 `browser-dialer-health.timer` 每 30 秒心跳自愈（Xray 每次启动都会换 CSRF token，
-浏览器必须跟着重启，否则代理会静默失效）。
-
-## 安全边界
-
-- SOCKS5 **只绑 LAN 地址**（默认 `192.168.x.x:1080`），绝不 `0.0.0.0`。
-- Browser Dialer HTTP 只监听 `127.0.0.1:18081`；面板可配令牌。
-- 只写 `/opt/xray-browser-dialer` 与自己创建的 5 个 systemd 单元。
-- **绝不修改** `/etc/xray`、`/usr/local/etc/xray`、系统 `xray.service`、mihomo、防火墙、路由。
-- 卸载只删除本项目的东西，删前先列清单。
-
-## 依赖
-
-`bash` `curl` `python3`(≥3.8) `unzip` `systemd` `ss` `ip`，以及一个真实浏览器
-（Chromium/Chrome，缺失时脚本会尝试按发行版安装；**无法用其它方式替代**）。
-Xvfb 不需要 —— headless Chromium 已实测可用。
-
-## ECH 验证（Chromium 原生 ECH）
-
-Browser Dialer 下 **TLS 由 Chromium 完成**，所以 ECH 也必须由 Chromium 发起 ——
-Xray 的 `tlsSettings.echSettings` 在这条链路上不生效。用内置命令验证：
-
-```bash
-./xray-browser-dialer.sh ech            # 完整验证（隔离端口，不动生产服务）
-./xray-browser-dialer.sh ech --quick    # 只查 DNS 侧 ECHConfig
-./xray-browser-dialer.sh ech --keep     # 保留 netlog 等证据
-```
-
-判据全部来自 Chromium 自己的 netlog，而不是"看到 TLS 1.3 就算"：
-
-| 证据 | 含义 |
-|---|---|
-| `ech_config_list` 非空 | Chromium 成功获得 ECHConfig |
-| `encrypted_client_hello: true` | 该次握手**实际发出**了 ECH |
-| 该事件邻近的 host == 节点域名 | ECH 确实作用在到节点的连接上 |
-| Xray 日志 `XHTTP is dialing` 次数为 0 | TLS 是 Chromium 做的，不是 Xray |
-
-状态分级：`ECH_ACTIVE` / `ECH_INACTIVE` / `ECH_UNAVAILABLE` / `ECH_UNKNOWN`。
-
-### 关键前提：DoH 必须真的生效
-
-本机实测（Chromium 151）：
-
-* ECH 需要 Chromium 的 **Secure DNS**，而现代 Chromium **移除了**
-  `--dns-over-https-mode` / `--dns-over-https-templates` 命令行开关；
-  DoH 只能通过 profile 的 `Local State`（`dns_over_https.mode=secure` + `templates`）配置。
-* 系统解析器不返回 HTTPS/SVCB 记录时，Chromium 拿不到 ECHConfig。
-* 实测 `dns.alidns.com` 的 DoH 在本机直连可达且返回 ECHConfig；
-  `cloudflare-dns.com` / `dns.google` 在本机被墙（才需要走代理）。
-
-### 实测结论
-
-* Chromium 原生 ECH **可用**（`ECH_ACTIVE`）。
-* ECH 只在**新建** TLS 握手上生效；连接复用（XHTTP 会话池 / Mux）时不会有新握手，
-  因此探测时临时配置会关闭 mux。
-* Chromium 在 A 记录与 HTTPS 记录之间是**竞速**的，第一个连接常赶在 ECHConfig 之前
-  回退为普通握手 —— 这是正常行为，不是配置错误。实测多次运行成功率约 80%。
+本文只讲两件在这套系统上**容易踩坑**的事：架构为什么长这样，以及每个协议走浏览器转发的真实边界。
+结论来自官方文档、官方源码，以及本机实测（Xray 26.3.27）；凡实测得出的都注明验证方式。
 
 ---
 
-## 项目结构
+## 一、架构：唯一实例 + 两个入口
 
 ```
-xray-browser-dialer/
-├── xray-browser-dialer.sh     ← 唯一需要部署的文件（上传 GitHub 只需要它）
-├── README.md
-├── .gitignore
-├── research/                  研究资料，部署不需要（ECH 论证工具与结论）
-│   ├── README.md
-│   ├── echprobe.py            查询 HTTPS/SVCB 记录里的 ECHConfig
-│   ├── dnsfwd.py              极简 DNS 转发器（曾用于验证解析器行为）
-│   └── xray-echtest.json      ECH 验证用临时配置
-├── legacy/v1-multifile/       v1 多文件版（40 个文件），仅作历史参考，不再维护
-└── backup/                    安装前的备份（tarball + 当时的 systemd 单元）
+xray-client.service（唯一 Xray 进程，按当前节点决定带不带 XRAY_BROWSER_DIALER）
+├── SOCKS5  :1080    绑 LAN    ← 所有节点通用
+├── HTTP    :10809   绑 LAN    ← 所有节点通用
+├── HTTP    :10808   绑回环    ← 本机 docker / apt / curl
+└── :18081   绑回环            ← Xray ↔ Chromium 通道（浏览器转发用）
+
+chromium-browser-dialer.service   浏览器转发时才需要（约 890MB）
+browser-dialer-health.timer       每 30 秒确保它在该在的时候在线
 ```
 
-## 两份副本的关系
+**没有"普通模式端口"和"Browser Dialer 端口"之分。** 两个入口一直只由同一个 Xray 实例服务，
+"用不用浏览器"由当前节点的开关决定，与入口无关。历史上曾拆成两个实例 + 两个 SOCKS 端口，
+结果 10809 被两个进程同时绑定、请求随机落到其中一个，非常难排查 —— 不要走回头路。
 
-脚本同时存在两个位置，**内容必须一致**：
+### 关键约束：`XRAY_BROWSER_DIALER` 是进程级的
 
-| 位置 | 用途 |
-|---|---|
-| `xray-browser-dialer/xray-browser-dialer.sh` | 开发副本，GitHub 上传的就是它 |
-| `/opt/xray-browser-dialer/xray-browser-dialer.sh` | 服务器上实际运行的副本 |
-
-改完开发副本后同步：
-
-```bash
-cp xray-browser-dialer/xray-browser-dialer.sh /opt/xray-browser-dialer/
-cd /opt/xray-browser-dialer && ./xray-browser-dialer.sh update
-chmod 0755 /opt/xray-browser-dialer/xray-browser-dialer.sh
+```go
+func HasBrowserDialer() bool { return conns != nil }   // transport/internet/browser_dialer/dialer.go
 ```
 
-也可以反过来：直接在 `/opt/xray-browser-dialer/` 里改，再拷回开发副本。
+进程启动时读一次环境变量，之后无法按节点改变。所以：
 
-部署目录 `/opt/xray-browser-dialer/` 的结构（由脚本自动生成，不需要手工维护）：
+- **关掉浏览器时必须让这个进程不再带该环境变量** —— 见 `scripts/run-xray.sh`，它按当前节点的
+  `use_browser` 决定带不带。只改节点文件不重启进程是无效的。
+- 三处判定必须共用同一个来源（`compat.py want-bd`）：`run-xray.sh`、`health-check.sh`、`actions.sh`。
+  各判各的会出现"一个说要、一个说不要"，而后果不是标签错，是节点**永久挂住**。
 
+### 为什么"停掉浏览器"会让节点挂住
+
+```go
+conn = <-conns        // transport/internet/browser_dialer/dialer.go：没有 ctx、没有超时
 ```
-/opt/xray-browser-dialer/
-├── xray-browser-dialer.sh    主脚本（可从这里直接执行所有命令）
-├── bin/                      Xray 二进制 + geo 数据
-├── config/                   listen.env / browser-dialer.env / chromium.env / panel.env
-├── lib/                      compat.py / genconfig.py / panel.py / echprobe.py / echcheck.py（安装时从主脚本展开）
-├── scripts/                  run-xray.sh / run-chromium.sh / run-panel.sh / health-check.sh
-├── service/                  5 个 systemd 单元
-├── nodes/                    节点文件，current 指向当前选中
-├── runtime/                  运行配置 + Chromium profile
-├── logs/ access.log error.log
-├── generated/                mihomo 配置等生成物
-└── backup/                   更新二进制前的备份
+
+只要进程带着 `XRAY_BROWSER_DIALER`，`xhttp` / `websocket` 出站就走浏览器。此时若 Chromium 不在线，
+`dialTask()` 会**无限阻塞**：不报错、不回退、连接一直挂着。表现为"关了浏览器之后这个节点就没网了"。
+
+因此顺序永远是：**先让节点切到原生 TLS（重启 Xray 去掉环境变量），再停 Chromium。**
+
+---
+
+## 二、浏览器转发支持什么（官方硬限制）
+
+官方 `docs/config/features/browser_dialer.md`：
+
+- 浏览器只能发出 HTTP 连接，所以**仅支持 WebSocket 与 XHTTP** 传输方式
+- **`SNI == host == address`**，自定义 HTTP 头与其它 `tlsSettings` 项会被忽略
+- 浏览器必须能直连该节点域名（用 tun 时注意环路）
+- 需要处理 CORS
+- 浏览器会限制连接数，建议开 Mux.Cool
+- 版本门槛：WebSocket 需 `v1.4.1+`，XHTTP 需 `v1.8.19+`
+
+源码里只有两处判断，**条件不同**：
+
+```go
+// transport/internet/splithttp/dialer.go:50      XHTTP
+if browser_dialer.HasBrowserDialer() && realityConfig == nil { ... }
+
+// transport/internet/websocket/dialer.go:114     WebSocket（没有 reality 条件）
+if browser_dialer.HasBrowserDialer() { ... }
 ```
+
+两者都**不检查代理协议** —— 浏览器转发在传输层，vmess / trojan 走 ws 时同样由浏览器完成 TLS。
+
+### 兼容性矩阵（实测）
+
+| 传输 | 安全 | 浏览器转发 | 说明 |
+|---|---|---|---|
+| `xhttp` / `splithttp` | tls / none | ✅ | 官方支持 |
+| `xhttp` | **reality** | ❌ | 源码要求 `realityConfig == nil` |
+| `websocket` / `ws` | tls / none | ✅ | 官方支持 |
+| `raw` / `tcp` | — | ❌ | 浏览器发不出这种私有分帧 |
+| `grpc` / `mkcp` / `httpupgrade` / `hysteria` | — | ❌ | 同上 |
+| 任意 | reality + 非 raw/xhttp/grpc | ❌ | 实测报错：`REALITY only supports RAW, XHTTP and gRPC for now.` |
+| `h2` / `h3` / `http` / `quic` | — | ❌ | 26.x 已移除：`The feature ... has been removed` |
+| `hysteria2` | — | ❌ | 有它自己的 dialer，**不检查** `HasBrowserDialer` |
+
+**重要**：hysteria2 在带 BD 环境的进程里能出网，但那是**原生 QUIC 通的**，浏览器完全不在路径上。
+所以"浏览器路径是否可用"不能只看能否出网，必须确认浏览器在路径上 ——
+见 `tools/browserprobe.py`：查 `privacy_mode`、请求期间 WS 是否仍在、Xray 有无自己直连。
+
+### 版本与字段名
+
+- 出站协议名：Xray 里是 `hysteria`（`version: 2`），**不是** `hysteria2`
+- 传输字段：官方文档只用 `method`；实测 26.3.27 **只认 `network`**（`method` 被静默丢弃），
+  所以 `lib/genconfig.py` **两个都写**，兼顾现在与将来
+- `network` 不接受 `h2` / `quic`（已被移除）；`method` 照单全收但无效
+
+---
+
+## 三、WebSocket 的 early data（`?ed=`）
+
+Xray 发给内嵌页面的 WS 任务里有 `extra.protocol` 字段，页面用它作为 WebSocket 子协议：
+
+```javascript
+const wss = new WebSocket(task.url, task.extra.protocol);
+```
+
+Go 侧只在 early data 长度 > 0 时才填充它：
+
+```go
+if streamSettings.ProtocolSettings.(*Config).Ed > 0 {
+    conn = &delayDialConn{ ... }          // ed 非 nil，extra.protocol 才有值
+} else {
+    conn, _ = dialWebSocket(..., nil)     // ed = nil → extra 为空 → 页面抛 TypeError
+}
+```
+
+**实测结论**：
+
+- `ed` 只能通过 **URL 查询串**生效；`wsSettings.ed` / `earlyData` / `early_data` / `edMax` 全部无效
+- 因此 `lib/genconfig.py` 把它拼到 `path` 上；`lib/node.py` 解析时把用户写的值记进 `ws_ed`，
+  生成时优先用用户的值，**完全没有时才补 `?ed=2048`**（官方推荐值）
+- 只对 `websocket` 生效，不污染其它传输
+
+> 实测对照：同一节点 `path` 不带 ed → 内嵌页面 `Uncaught TypeError: Cannot read properties of
+> undefined (reading 'protocol')`，连接必然失败；带 `?ed=2048` → 任务里带上 750 字节 early data，正常。
+
+---
+
+## 四、ECH（Encrypted Client Hello）
+
+浏览器转发下 TLS 由 Chromium 完成，所以 **ECH 也只能由 Chromium 提供**，靠 Secure DNS 拿 ECHConfig。
+
+`xbd ech` 的判据全部取自 Chromium 自己的 netlog，不是"看到 TLS 1.3 就算"：
+
+- `ech_config_list` 非空 —— Chromium 拿到了 ECHConfig（base64 字符串长 96，解码后 71 字节）
+- 到节点的连接 `privacy_mode == "enabled"` —— 该连接启用了隐私模式
+- 外层 SNI 应是 `public_name`（如 `cloudflare-ech.com`），**内层 SNI 才是节点域名**
+
+**不要用 `encrypted_client_hello` 字段数数**：它只出现在 TLS-over-TCP 的握手事件里；节点走
+QUIC/HTTP3 时不会产生该字段，会得出"ECH 没生效"的**假阴性**（实测 5 次里错 2 次）。
+
+**脆性**：ECH 依赖 Secure DNS 在线，而节点 ECHConfig 往往只有 DoH 服务器才返回
+（实测本机系统 DNS 不返回 HTTPS 记录）。所以它是"能用则用"的增强，不要为它牺牲可用性 ——
+**不要**在 `run-chromium.sh` 里加"DoH 预检 + `--host-resolver-rules` 钉 IP"那种加固：
+
+> 曾加过一次，结果是 IPv6 优先钉死 + `mode=secure` 时 Chromium 拒绝解析任何域名，
+> 连节点域名都解析不出来，三个入口全部 `SSL_ERROR_SYSCALL`。而且它看起来是好的：
+> 端口在听、服务 active、WS 也连着，只是全部拨号失败。
+
+---
+
+## 五、能力判定 vs 实测
+
+配置层面"合法"不等于"能通"。实测到两种判定覆盖不到的情况：
+
+1. 同一套 ws 配置，某台服务器可用、另一台不行（服务端差异）
+2. hysteria2 在 BD 环境下能出网，但走的是原生 QUIC
+
+所以判定分三层，不要混：
+
+| 字段 | 含义 | 用途 |
+|---|---|---|
+| `can_use_xray` | 配置层面 Xray 能起来 | 能否使用该节点 |
+| `protocol_may_dialer` | 协议/传输层面**是否可能**走浏览器 | **决定 Chromium 能否停**（停了会挂住） |
+| `can_use_dialer` | 综合判定 + **实测结果** | 界面显示"能不能用浏览器" |
+
+`tools/browserprobe.py` 做真实探测（临时起 Xray + Chromium 跑一次请求，不动生产服务），
+结果写进节点文件；判定读它。**判不出来就说判不出来，绝不假装支持。**
+
+导入时还会自动：**剔除 Xray 内核不支持的协议**（`tuic` 之类）并**去重**（同协议/地址/端口/凭据），
+结束时汇总说明跳过了什么。想留档加 `--keep-unsupported`。
