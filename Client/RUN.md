@@ -157,9 +157,10 @@ xbd uninstall
 | 6 个 systemd 单元 | 先停止 → 禁用 → 删除并 reload |
 | 安装目录 | 默认 `/opt/xray-browser-dialer`（含 Xray 内核、节点、日志） |
 | `/usr/local/bin/xbd` | 仅当它指向本项目时 |
-| `/etc/profile.d/proxy.sh` | 仅当内容指向本项目的 HTTP 代理端口时 |
+| 本机代理配置 | **只删自己写的**。`xbd proxy on` 若发现本机已有别的服务在接管系统代理（例如 mihomo 写的 `/etc/profile.d/*.sh`、`/etc/environment`），会**就地改那一份**而不是再新增一份来互相覆盖；此时 `proxy off` / 卸载会**还原原文件**，不会删掉别人的配置 |
+| `/var/lib/xbd-proxy` | 接管时留下的原文件备份与归属记录（还原用） |
 | docker 代理配置 | 同上判断 |
-| nftables 透明接管规则 | 仅当 `table ip xbd_takeover` 存在时 |
+| nftables 残留规则 | 仅当 `table ip xbd_takeover` 存在时（旧版"接管局域网"模式遗留） |
 
 ### 它绝不会碰什么
 
