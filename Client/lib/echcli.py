@@ -144,34 +144,150 @@ def system_resolvers():
 
 
 # --------------------------------------------------------------- netlog ----
-def scan_netlog(path, node_host=""):
+# 事件类型编号（Chromium netlog 的 type 是枚举序号，这里只固化我们用到的那几个；
+# 判据不依赖编号含义，而是依赖字段本身是否存在，所以即使编号漂移也不会误判）。
+EV_SSL_CONFIG = 194        # 含 url / privacy_mode
+EV_SSL_HANDSHAKE = 63      # 含 encrypted_client_hello（仅 TLS-over-TCP）
+EV_CONNECT_JOB = 181       # 含 destination / using_quic
+EV_TCP_CONNECT = 51        # 含 address
+
+
+def _load_events(path):
+    """容错读取 netlog 事件。
+
+    netlog 常被截断（Chromium 被 SIGKILL 时根对象没闭合），严格 json.loads 会炸，
+    而正则能容忍却会丢结构。这里用 raw_decode 逐条读，读到断点就停 —— 两头的好处都要。
+    """
     raw = open(path, encoding="utf-8", errors="replace").read()
-    cfg_lens = {len(m) for m in re.findall(r'"ech_config_list":\s*"([^"]*)"', raw) if m}
-    hs = [(m.start(), m.group(1)) for m in re.finditer(r'"encrypted_client_hello":\s*(true|false)', raw)]
-    hosts = [(m.start(), m.group(1)) for m in re.finditer(r'"host":\s*"([^"]+)"', raw)]
+    dec = json.JSONDecoder()
+    i = raw.index("[", raw.index('"events"')) + 1
+    n = len(raw)
+    events, truncated = [], False
+    while i < n:
+        while i < n and raw[i] in " \t\r\n,":
+            i += 1
+        if i >= n or raw[i] == "]":
+            break
+        try:
+            obj, end = dec.raw_decode(raw, i)
+        except Exception:
+            truncated = True
+            break
+        events.append(obj)
+        i = end
+    return events, truncated
 
-    def nearest(pos):
-        prev = [h for p, h in hosts if p < pos]
-        return prev[-1] if prev else "?"
 
-    ech_hosts = [nearest(p) for p, v in hs if v == "true"]
-    node_ech = [h for h in ech_hosts if node_host and node_host in h]
+def _find_key(obj, key):
+    """按结构递归查找 key，返回 [(值, 同一字典里其它字符串值...)]。
 
-    if node_ech:
+    刻意不用 json.dumps + 正则：那正是这个探针原来的毛病 —— 引号、转义、换行
+    都会让匹配悄悄失败，而失败表现为"看不到 ECHConfig"，会被误读成"ECH 没生效"。
+    """
+    out = []
+    if isinstance(obj, dict):
+        if key in obj:
+            siblings = [v for k, v in obj.items()
+                        if k != key and isinstance(v, str)]
+            out.append((obj.get(key), siblings))
+        for k, v in obj.items():
+            if k != key:
+                out.extend(_find_key(v, key))
+    elif isinstance(obj, list):
+        for v in obj:
+            out.extend(_find_key(v, key))
+    return out
+
+
+def scan_netlog(path, node_host=""):
+    """判定"ECH 是否真的作用在到节点的连接上"。
+
+    为什么不能用"数 encrypted_client_hello":
+
+    1. 该字段只出现在 TLS-over-TCP 的 SSL_HANDSHAKE 事件里。而 Chromium 对支持
+       HTTP/3 的站点会走 QUIC，QUIC 的 ECH **不会**产生这个字段 —— 于是节点明明
+       用了 ECH，却被报成"没使用"。实测 5 次里 2 次因此假阴性。
+    2. 它以前还按"最近的前一个 host 字符串"猜这条握手属于谁（按文件字节位置），
+       那既可能取到别的并发连接，也可能取到 URL —— 不是证据。
+
+    现在改用两个**直接**判据：
+      A. SSL_CONFIG 事件的 privacy_mode == "enabled"  —— 这条连接启用了隐私模式（ECH），
+         而它是按 url 归属到具体主机的，不用猜。
+      B. 同时确认 Chromium 确实拿到了该域名的 ECHConfig（DNS 侧的 HTTPS 记录）。
+    另外记录到节点的连接走的是 TCP 还是 QUIC，避免再把 QUIC 当成"没连上"。
+    """
+    events, truncated = _load_events(path)
+    host = (node_host or "").strip().lower()
+
+    cfg_lens = set()          # Chromium 拿到的 ECHConfig 长度（base64 字符串长度）
+    ech_config_for_node = 0   # 明确归属到节点域名的 ECHConfig
+    privacy_on, privacy_off = [], []
+    tcp_ech_true = tcp_ech_total = 0
+    node_quic = node_tcp = 0
+    node_ips = set()
+
+    for e in events:
+        prm = e.get("params") or {}
+        et = e.get("type")
+
+        # ECHConfig：按**结构**找，不用正则 —— 用正则解析 JSON 正是这个探针
+        # 原来最容易出错的地方（引号/转义/换行都会让匹配悄悄失败）。
+        for lst, name in _find_key(prm, "ech_config_list"):
+            if lst:
+                cfg_lens.add(len(lst))
+                # 归属：同一条目里出现的 target_name / canonical_names 是否就是节点
+                if host and any(host in str(x).lower() for x in name):
+                    ech_config_for_node += 1
+
+        if et == EV_SSL_CONFIG:
+            url = prm.get("url") or ""
+            pm = prm.get("privacy_mode") or ""
+            if host and host in url.lower():
+                (privacy_on if pm.startswith("enabled") else privacy_off).append(url)
+        elif et == EV_SSL_HANDSHAKE and "encrypted_client_hello" in prm:
+            tcp_ech_total += 1
+            if prm.get("encrypted_client_hello") is True:
+                tcp_ech_true += 1
+        elif et == EV_CONNECT_JOB:
+            dest = (prm.get("destination") or "").lower()
+            if host and host in dest:
+                if prm.get("using_quic"):
+                    node_quic += 1
+                else:
+                    node_tcp += 1
+        elif et == EV_TCP_CONNECT and host:
+            addr = prm.get("address")
+            if addr and addr.startswith("[") is False:
+                node_ips.add(addr)
+
+    # 判据 A 优先：能直接看到"到节点的连接启用了隐私模式"
+    if privacy_on:
         status = "ECH_ACTIVE"
-    elif cfg_lens and ech_hosts:
+    elif ech_config_for_node and privacy_off:
         status = "ECH_INACTIVE"
-    elif cfg_lens or hs:
-        status = "ECH_INACTIVE"
+    elif cfg_lens and not privacy_on:
+        # 拿到了 ECHConfig，但看不到任何到节点的启用态连接：
+        # 可能是没连上、也可能是走了 QUIC 而这些事件没被记上 —— 证据不足就说不足
+        status = "ECH_UNKNOWN" if not privacy_off else "ECH_INACTIVE"
     else:
         status = "ECH_UNKNOWN"
 
     return {
         "ech_config_lengths": sorted(cfg_lens),
-        "handshakes": len(hs),
-        "ech_handshakes": len(ech_hosts),
-        "ech_hosts": list(dict.fromkeys(ech_hosts)),
-        "node_ech": bool(node_ech),
+        "ech_config_for_node": ech_config_for_node,
+        "node_privacy_enabled": len(privacy_on),
+        "node_privacy_disabled": len(privacy_off),
+        # 保留旧字段名以便向后兼容，但语义已修正（见上面注释）
+        "handshakes": tcp_ech_total,
+        "ech_handshakes": tcp_ech_true,
+        "ech_hosts": sorted({u.split("/")[2] for u in privacy_on if "//" in u}),
+        "node_ech": bool(privacy_on),
+        "node_transport": ("quic" if node_quic and not node_tcp
+                           else "tcp" if node_tcp and not node_quic
+                           else "mixed" if node_quic and node_tcp else "unknown"),
+        "node_quic_jobs": node_quic,
+        "node_tcp_jobs": node_tcp,
+        "truncated": truncated,
         "status": status,
     }
 
@@ -293,14 +409,24 @@ def main(argv):
             sh(["kill", "-9", p])
         time.sleep(1)
 
-        # 谁在发起上游 TLS
+        # 谁在发起上游 TLS。
+        # ⚠ 这条日志是 **Info 级**，而本诊断用 warning 级运行 —— 所以它**恒为 0**，
+        # 无论 Xray 是否真的自己拨号。它证明不了任何事，之前却被当成"TLS 由浏览器发起"
+        # 的证据（独立复核实测：info 级下 1 条，warning 级下 0 条）。
+        # 现在只在真的取到该日志行时才作为辅助信息输出，取不到就明确标注"不可用"。
         logf = os.path.join(work, "error-dialer.log")
         try:
-            dial = open(logf, errors="replace").read().count("XHTTP is dialing")
+            txt = open(logf, errors="replace").read()
+            dial = txt.count("XHTTP is dialing")
+            dial_usable = "XHTTP is dialing" in txt or "dialing" in txt
         except OSError:
-            dial = 0
-        result["checks"]["tls_by_chromium"] = dial == 0
-        result["evidence"]["xray_self_dials"] = dial
+            dial, dial_usable = 0, False
+        result["evidence"]["xray_self_dials"] = dial if dial_usable else None
+        result["evidence"]["xray_self_dials_note"] = (
+            "可用（日志里出现了 dialing 行）" if dial_usable
+            else "不可用：该日志是 Info 级，本诊断按 warning 级运行，恒为 0，不能作为证据")
+        # 真正可靠的反证在 netlog 里：到节点的连接由 Chromium 建立（node_transport 非 unknown）
+        result["checks"]["tls_by_chromium"] = None
 
         if os.path.exists(netlog):
             result["evidence"]["netlog"] = scan_netlog(netlog, node_host)
@@ -338,15 +464,26 @@ def report(result, as_json):
         for k, v in result["evidence"]["dns_channels"].items():
             print(f"    {k:<32} {'✅ 有' if v else '❌ 无'}")
     if nl:
-        print(f"  ECHConfig 长度:      {nl.get('ech_config_lengths') or '未获得'}")
-        print(f"  TLS 握手:            {nl.get('handshakes')} 次，其中 ECH {nl.get('ech_handshakes')} 次")
-        if nl.get("ech_hosts"):
-            print("  使用 ECH 的连接:")
-            for h in nl["ech_hosts"][:5]:
-                mark = "  ← 目标节点" if result.get("node") and result["node"] in h else ""
-                print(f"    {h}{mark}")
+        print(f"  ECHConfig 长度:      {nl.get('ech_config_lengths') or '未获得'}"
+              + (f"（其中 {nl.get('ech_config_for_node')} 条明确属于目标节点）"
+                 if nl.get("ech_config_for_node") else ""))
+        tr = nl.get("node_transport", "unknown")
+        tr_txt = {"quic": "QUIC / HTTP3", "tcp": "TCP", "mixed": "TCP + QUIC",
+                  "unknown": "未见连接到节点"}.get(tr, tr)
+        print(f"  到节点的连接:        {tr_txt}"
+              + (f"（QUIC 任务 {nl.get('node_quic_jobs')} / TCP 任务 {nl.get('node_tcp_jobs')}）"
+                 if tr in ("quic", "tcp", "mixed") else ""))
+        enabled = nl.get("node_privacy_enabled") or 0
+        disabled = nl.get("node_privacy_disabled") or 0
+        print(f"  目标节点启用 ECH:    {enabled} 条启用 / {disabled} 条未启用")
+        print(f"  TLS-over-TCP 握手:   {nl.get('handshakes')} 次，其中 ECH "
+              f"{nl.get('ech_handshakes')} 次（此计数看不到 QUIC，仅供参考）")
+        if nl.get("truncated"):
+            print("  注:                  netlog 尾部被截断，已按容错方式解析")
     if result["evidence"].get("xray_self_dials") is not None:
         print(f"  Xray 自发连接:       {result['evidence']['xray_self_dials']}（0 = TLS 由 Chromium 发起）")
+    elif result["evidence"].get("xray_self_dials_note"):
+        print(f"  Xray 自发连接:       {result['evidence']['xray_self_dials_note']}")
     print("=" * 44)
     labels = {
         "ECH_ACTIVE": ("✓ ECH 已在到节点的握手上实际使用", True),
