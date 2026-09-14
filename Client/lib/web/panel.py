@@ -125,12 +125,17 @@ def build_state():
         "api": cfg_get(os.path.join(CONF, "api.env"), "API_PORT", "18085"),
     }
 
-    # 本机接管：看 proxy.sh / docker 配置是否指向我们
-    prof = "/etc/profile.d/proxy.sh"
-    dk = "/etc/systemd/system/docker.service.d/http-proxy.conf"
-    hp = state["ports_cfg"]["http"]
-    state["takeover_local"] = ("127.0.0.1:" + hp) in (open(prof).read() if os.path.exists(prof) else "")
-    state["takeover_lan"] = bool(sh(["nft", "list", "table", "ip", "xbd_takeover"], timeout=10)[0] == 0)
+    # 本机接管：不能只看 proxy.sh —— 接管点可能落在**别人**原有的配置里
+    # （xbd proxy on 是"改配置而非新增"）。真相只有一个来源：xbd proxy json。
+    rc, out, _ = sh([os.path.join(PREFIX, "bin", "xbd"), "proxy", "json"], timeout=30)
+    try:
+        local = json.loads((out or "").strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        local = {}
+    state["takeover_local"] = bool(local.get("enabled"))
+    state["takeover_local_files"] = [f for f in (local.get("shell"), local.get("docker"),
+                                                 local.get("environment")) if f]
+    state["takeover_local_owners"] = int(local.get("owners") or 0)
     state["xray_ver"] = ""
     rc, out, _ = sh([os.path.join(PREFIX, "bin", "xray"), "version"], timeout=15)
     if rc == 0 and len(out.split()) > 1:
@@ -325,12 +330,24 @@ def act_xray_upgrade():
     return True, f'内核已更新 {d.get("from") or "无"} → {d.get("to")} {note}，服务已重启'
 
 
+def _px_note(out):
+    """把 xbd proxy on 的关键决策行带回界面：改了谁家的配置，或新建了什么。"""
+    keep = [l.strip() for l in (out or "").splitlines()
+            if ("接管" in l or "已写" in l or "已移除" in l or l.lstrip().startswith("["))
+            and "本机没有别的" not in l]
+    return ("\n" + "\n".join(keep)) if keep else ""
+
+
 def act_takeover(mode):
-    """三种接管模式（需求：不接管 / 接管本机 / 接管局域网）。"""
+    """两种接管模式：不接管 / 接管本机。
+
+    曾经的第三种「接管局域网」（透明网关）已移除 —— 设计与实测存档在
+    docs/mode3-lan-gateway/。局域网设备改为自己在代理设置里填 IP:端口。
+    """
     xbd = os.path.join(PREFIX, "bin", "xbd")
     if mode == "none":
         out_msgs = []
-        for args in (["proxy", "off"], ["takeover", "off"]):
+        for args in (["proxy", "off"],):
             rc, o, e = sh([xbd] + args, timeout=180)
             out_msgs.append(o or e or "")
         return True, "已切换为「不接管」：只提供代理服务，不修改本机与局域网" + \
@@ -339,14 +356,7 @@ def act_takeover(mode):
         rc, out, err = sh([xbd, "proxy", "on"], timeout=300)
         if rc != 0:
             return False, out or err
-        return True, "已接管本机：docker / apt / curl 走我们的代理（局域网不受影响）"
-    if mode == "lan":
-        # 先确保本机代理配置可用，再开透明劫持
-        sh([xbd, "proxy", "on"], timeout=300)
-        rc, out, err = sh([xbd, "takeover", "on"], timeout=180)
-        if rc != 0:
-            return False, out or err
-        return True, "已接管局域网：80/443 透明转发，SSH/LAN/DNS 已豁免"
+        return True, "已接管本机：docker / apt / curl 走我们的代理（局域网不受影响）" + _px_note(out)
     return False, "未知模式"
 
 
@@ -647,14 +657,14 @@ display:none;font-size:13px;white-space:pre-wrap}
 .mode-pick button{flex:1}
 .mode-pick button.sel{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
 .stopped{color:var(--dim)}
-.mode3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.mode3 button{display:flex;flex-direction:column;align-items:flex-start;gap:4px;
+.modes{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.modes button{display:flex;flex-direction:column;align-items:flex-start;gap:4px;
   text-align:left;padding:11px 12px;line-height:1.35}
-.mode3 button b{font-size:13px}
-.mode3 button span{font-size:11px;color:var(--dim);font-weight:400}
-.mode3 button.sel{background:var(--acc);border-color:var(--acc)}
-.mode3 button.sel span{color:rgba(255,255,255,.85)}
-@media(max-width:620px){.mode3{grid-template-columns:1fr}}
+.modes button b{font-size:13px}
+.modes button span{font-size:11px;color:var(--dim);font-weight:400}
+.modes button.sel{background:var(--acc);border-color:var(--acc)}
+.modes button.sel span{color:rgba(255,255,255,.85)}
+@media(max-width:620px){.modes{grid-template-columns:1fr}}
 </style></head><body><div class="wrap">
 
 <header>
@@ -716,15 +726,12 @@ display:none;font-size:13px;white-space:pre-wrap}
 
 <div class="card" style="margin-top:14px"><h2>接管模式</h2>
   <div class="hint" style="margin:0 0 10px">控制这台服务器"被接管到什么程度"。默认不接管，只提供代理服务。</div>
-  <div class="mode3">
+  <div class="modes">
     <button id="tk-none" onclick="setTakeover('none')">
       <b>不接管</b><span>只提供代理服务<br>本机与局域网都不改</span>
     </button>
     <button id="tk-local" onclick="setTakeover('local')">
       <b>接管本机</b><span>docker / apt / curl 走代理<br>局域网不受影响</span>
-    </button>
-    <button id="tk-lan" onclick="setTakeover('lan')">
-      <b>接管局域网</b><span>80/443 透明转发<br>SSH/LAN/DNS 已豁免</span>
     </button>
   </div>
   <div class="hint" id="hint-takeover"></div>
@@ -1027,9 +1034,9 @@ async function load(){
             : '⚠ 当前节点设置为走浏览器，但 Chromium 没在运行 —— 点「启动 Chromium」恢复。')
         : '当前节点走 Xray 自带 TLS，Chromium 关着即可（省约 890MB）。想改用浏览器指纹：在下面节点表点「BD 连接」。');
   // 接管模式：三选一，如实反映当前状态
-  const tkl = !!ST.takeover_local, tkn = !!ST.takeover_lan;
-  const cur = tkn ? 'lan' : (tkl ? 'local' : 'none');
-  for (const m of ['none','local','lan']) {
+  const tkl = !!ST.takeover_local;
+  const cur = tkl ? 'local' : 'none';
+  for (const m of ['none','local']) {
     const b = document.getElementById('tk-'+m);
     if (b) { b.className = (m === cur) ? 'sel' : ''; }
   }
@@ -1040,10 +1047,10 @@ async function load(){
     `LAN HTTP <span class="mono">${L}:${pc.lan_http}</span><br>` +
     `LAN SOCKS <span class="mono">${L}:${pc.normal}</span><br>` +
     `<span class="hint">两个入口都是全部节点通用，服务器按节点自动决定要不要用浏览器。</span>`;
-  $('hint-takeover').textContent = tkn
-    ? '当前：局域网透明接管中。设备连上网络即可用，无需配置；关闭请点「不接管」。'
-    : (tkl ? '当前：接管本机（docker / apt / curl 走代理）。'
-           : '当前：不接管。设备需在 WiFi/系统设置里手动填上面任一入口。');
+  $('hint-takeover').textContent = tkl
+    ? '当前：接管本机（docker / apt / curl 走代理）。'
+      + ((ST.takeover_local_files || []).length ? ' 配置在 ' + ST.takeover_local_files.join(' / ') : '')
+    : '当前：不接管。局域网设备在 WiFi/系统设置里手动填上面任一入口即可（本机不做任何改动）。';
 
   $('xver').textContent = ST.xray_ver || '未知';
 
@@ -1135,8 +1142,7 @@ async function setMode(m){
 const useNode = (f, btn) => post('node_use', {ident:f}, '正在切换节点…', btn);
 const rmNode = f => { if(confirm('确认删除该节点？')) post('node_remove', {ident:f}); };
 async function setTakeover(mode, btn){
-  const labels = {none:'正在切换为「不接管」…', local:'正在接管本机（会重启 docker）…',
-                  lan:'正在接管局域网（写入 nftables 规则）…'};
+  const labels = {none:'正在切换为「不接管」…', local:'正在接管本机（会重启 docker）…'};
   const el = btn || document.getElementById('tk-'+mode);
   await post('takeover', {mode}, labels[mode], el);
 }
