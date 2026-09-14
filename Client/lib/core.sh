@@ -21,9 +21,8 @@ XBD_XRAY="$XBD_BIN/xray"
 XBD_APK="$XBD_PREFIX/xbd.apk"          # 自解压载荷（单文件分发时用）
 XBD_DIST="$XBD_PREFIX/xbd-dist"        # 解压后的脚本目录（自解压版）
 
-# 端口规划（详见 docs/ARCHITECTURE.md）
-XBD_PORT_NORMAL="${XBD_PORT_NORMAL:-1080}"        # 常驻 Xray → LAN
-XBD_PORT_DIALER="${XBD_PORT_DIALER:-1081}"        # Browser Dialer Xray → LAN
+# 端口规划（详见 README.md 的架构要点）
+XBD_PORT_NORMAL="${XBD_PORT_NORMAL:-1080}"        # 唯一 Xray 实例 → LAN（SOCKS5）
 XBD_PORT_HTTP="${XBD_PORT_HTTP:-10808}"           # 本机 HTTP 代理（docker/apt/curl，仅回环）
 XBD_PORT_LAN_HTTP="${XBD_PORT_LAN_HTTP:-10809}"   # 局域网 HTTP 代理（WiFi 设置里填）
 XBD_DIALER_ADDR="${XBD_DIALER_ADDR:-127.0.0.1:18081}"  # Xray↔Chromium 通道
@@ -31,9 +30,8 @@ XBD_PANEL_PORT="${XBD_PANEL_PORT:-18090}"
 XBD_PANEL_HOST_DEFAULT="127.0.0.1"
 
 # systemd 单元
-XBD_U_XRAY="xray-client.service"
-XBD_U_DIALER="xray-dialer.service"
-XBD_U_CHROMIUM="chromium-browser-dialer.service"
+XBD_U_XRAY="xray-client.service"                  # 唯一实例：SOCKS+HTTP，Browser Dialer 常备
+XBD_U_CHROMIUM="chromium-browser-dialer.service" # Browser Dialer 的运行时依赖
 XBD_U_PANEL="browser-dialer-panel.service"
 XBD_U_HEALTH="browser-dialer-health.service"
 XBD_U_TIMER="browser-dialer-health.timer"
@@ -120,15 +118,14 @@ cfg_set() {  # cfg_set <file> <key> <value>  幂等写入
 xbd_load_ports() {
   local f="$XBD_CONF/ports.env"
   XBD_PORT_NORMAL=$(cfg_get "$f" PORT_NORMAL "$XBD_PORT_NORMAL")
-  XBD_PORT_DIALER=$(cfg_get "$f" PORT_DIALER "$XBD_PORT_DIALER")
-  XBD_DIALER_ADDR=$(cfg_get "$f" DIALER_ADDR "$XBD_DIALER_ADDR")
+    XBD_DIALER_ADDR=$(cfg_get "$f" DIALER_ADDR "$XBD_DIALER_ADDR")
   XBD_PORT_HTTP=$(cfg_get "$f" PORT_HTTP "$XBD_PORT_HTTP")
   XBD_PORT_LAN_HTTP=$(cfg_get "$f" PORT_LAN_HTTP "$XBD_PORT_LAN_HTTP")
   XBD_LISTEN_ADDR=$(cfg_get "$f" LISTEN_ADDR "$(detect_lan_ip)")
   XBD_PANEL_HOST=$(cfg_get "$XBD_CONF/panel.env" PANEL_HOST "$XBD_PANEL_HOST_DEFAULT")
   XBD_PANEL_PORT=$(cfg_get "$XBD_CONF/panel.env" PANEL_PORT "$XBD_PANEL_PORT")
   XBD_PANEL_TOKEN=$(cfg_get "$XBD_CONF/panel.env" PANEL_TOKEN "")
-  export XBD_PORT_NORMAL XBD_PORT_DIALER XBD_PORT_HTTP XBD_PORT_LAN_HTTP XBD_DIALER_ADDR XBD_LISTEN_ADDR \
+  export XBD_PORT_NORMAL XBD_PORT_HTTP XBD_PORT_LAN_HTTP XBD_DIALER_ADDR XBD_LISTEN_ADDR \
          XBD_PANEL_HOST XBD_PANEL_PORT XBD_PANEL_TOKEN
 }
 
