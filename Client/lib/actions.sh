@@ -433,6 +433,12 @@ if b not in ("SUPPORTED", "SUPPORTED_WITH_WARNING") and notes:
     print("  原因：")
     for n in notes[:3]:
         print(f"    - {n}")
+# Xray 段的注意事项也要打 —— 原来只打 dialer 那段，于是 xray 段里最关键的那句
+# 「该节点声明了 skip-cert-verify，需要先 xbd cert 固定指纹，否则连不上」
+# 从来没显示过：卡片写着"⚠ 支持（有注意项）"却不说注意什么（实测踩过）。
+if x not in ("SUPPORTED",):
+    for n in ((c.get("xray") or {}).get("notes") or [])[:3]:
+        print(f"    * {n}")
 PY
 }
 
@@ -525,16 +531,27 @@ cmd_node_use() {
     fi
   fi
 
-  info "执行 xbd apply && xbd restart 生效"
-  # ⚠ 关键：让正在跑的 Xray 与"这个节点该不该用浏览器"保持一致。
+  # ⚠ 换了节点就**必须**重启，否则运行中的实例还在用旧节点。
   #
-  # 为什么非做不可：是否带 XRAY_BROWSER_DIALER 是**进程启动时**决定的。
-  # 节点文件改了而进程没变，就会出现"进程还带着 BD，但 Chromium 已经停掉"——
-  # 而 dialTask() 是 `conn = <-conns`，**没有超时**，该节点于是**永久挂住**，
-  # 表现为"关了浏览器之后这个节点就没网了"（实测踩过）。
-  # 所以这里主动比对并重启：进程实际状态 != 期望状态 就重启一次。
+  # 这里原来只打印一句"执行 xbd apply && xbd restart 生效"，把动作留给用户 ——
+  # 实测踩过：从 hysteria 节点切到另一个 hysteria 节点，浏览器开关没变，
+  # 于是既不重启也不报错，**界面上节点已经换好了、实际流量还走旧节点**
+  # （排查时看到进程启动时间比切换时间还早才发现）。
+  # 判据是**配置文件有没有变**，不是"软链接是不是刚被改动" ——
+  # 后者漏过一次：上一次 node use 只改了软链接、没重启，这一次 prev 与它相同，
+  # 于是又跳过重启，运行中的实例继续用旧节点（实测踩过）。
+  # 重新生成一次再比对哈希，是唯一可靠的"运行态 != 期望态"判据。
+  local cfg="$XBD_RUNTIME/xray-client.json" before after
+  before="$(sha256sum "$cfg" 2>/dev/null | cut -d' ' -f1)"
+  cmd_apply >/dev/null 2>&1 || warn "配置生成失败，请手动执行: xbd apply"
+  after="$(sha256sum "$cfg" 2>/dev/null | cut -d' ' -f1)"
   if unit_active "$XBD_U_XRAY"; then
-    _xbd_sync_xray_with_node || warn "Xray 重启失败，请手动执行: xbd restart"
+    if [ "$before" != "$after" ]; then
+      info "节点配置已变化，重启 Xray 生效…"
+      _xbd_sync_xray_with_node force || warn "Xray 重启失败，请手动执行: xbd restart"
+    else
+      _xbd_sync_xray_with_node || warn "Xray 重启失败，请手动执行: xbd restart"
+    fi
   fi
 }
 
@@ -661,7 +678,7 @@ cmd_node_probe() {
 
 # 让运行中的 Xray 与其环境变量声明保持一致（带不带 XRAY_BROWSER_DIALER）。
 # 返回 0 = 已一致或已重启成功；1 = 重启失败。
-_xbd_sync_xray_with_node() {
+_xbd_sync_xray_with_node() {   # $1=force 时无条件重启（换节点用）
   local want="no"
   _xbd_node_needs_dialer && want="yes"
   local pid have="no"
@@ -669,8 +686,8 @@ _xbd_sync_xray_with_node() {
   if [ "${pid:-0}" -gt 0 ] && tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^XRAY_BROWSER_DIALER='; then
     have="yes"
   fi
-  [ "$want" = "$have" ] && return 0
-  info "正在重启 Xray 让浏览器开关生效…"
+  [ "${1:-}" != "force" ] && [ "$want" = "$have" ] && return 0
+  info "正在重启 Xray 让节点/浏览器开关生效…"
   systemctl restart "$XBD_U_XRAY" 2>/dev/null || true
   sleep 4
   unit_active "$XBD_U_XRAY" || return 1
@@ -1239,6 +1256,15 @@ cmd_diagnose() {
     local loop=0
     ip -o link show type tun 2>/dev/null | grep -q . && { _d "本机 TUN" WARN "存在"; loop=1; } || _d "本机 TUN" PASS "无"
     iptables -t nat -S 2>/dev/null | grep -qE 'REDIRECT' && { _d "透明重定向" WARN "存在 NAT REDIRECT"; loop=1; } || _d "透明重定向" PASS "无"
+    # 旧版本的"接管局域网"模式会留下这张表，即使工具已经不提供那个模式也必须报出来：
+    # 残留规则会继续劫持局域网的 80/443 与 DNS，而界面上完全看不出来。
+    if nft list table ip xbd_takeover >/dev/null 2>&1 || nft list table ip6 xbd_takeover >/dev/null 2>&1; then
+      _d "nft 透明接管残留" WARN "存在 table xbd_takeover（旧版遗留）"
+      dim "      清理: nft delete table ip xbd_takeover; nft delete table ip6 xbd_takeover"
+      loop=1
+    else
+      _d "nft 透明接管残留" PASS "无"
+    fi
     iptables -t mangle -S 2>/dev/null | grep -qE 'TPROXY' && { _d "TPROXY" WARN "存在"; loop=1; } || _d "TPROXY" PASS "无"
     local pe; pe=$(env | grep -cE '^(HTTP_PROXY|HTTPS_PROXY|ALL_PROXY)=' || true)
     [ "${pe:-0}" -eq 0 ] && _d "代理环境变量" PASS "干净" || { _d "代理环境变量" FAIL "存在"; loop=1; }
@@ -1348,11 +1374,211 @@ cmd_uninstall() {
 # ---------------------------------------------------------------------------
 # 为什么需要：docker 的 HTTP_PROXY 只接受 http:// 与 https://，不认 socks5://。
 # 因此 Xray 除了 LAN 的 SOCKS5，还额外在回环上开一个 HTTP 代理。
+#
+# 接管原则：**改配置，不新增冲突配置**。
+# 本机可能已经有别的服务（mihomo / 发行版脚本 / 手工配置）接管了系统代理。
+# 我们再丢一份 /etc/profile.d/proxy.sh 进去就是两份互相打架的配置：profile.d 按
+# 字典序 source，后者胜出，谁覆盖谁完全取决于文件名，出问题极难排查。
+# 所以 on 时先探测"谁在接管"：探测到就**就地改写那一份**，并在 off 时按备份还原。
 XBD_PROFILE_FILE="/etc/profile.d/proxy.sh"
 XBD_DOCKER_PROXY="/etc/systemd/system/docker.service.d/http-proxy.conf"
+XBD_PROXY_STATE="/var/lib/xbd-proxy"   # on 时备份原文件 + 记录归属，供 off 精确还原
 
-xbd_proxy_url_http()  { printf 'http://127.0.0.1:%s' "$XBD_PORT_HTTP"; }
-xbd_proxy_url_socks() { printf 'socks5://127.0.0.1:%s' "$XBD_PORT_HTTP"; }
+xbd_proxy_url_http() { printf 'http://127.0.0.1:%s' "$XBD_PORT_HTTP"; }
+
+# 代理变量行（shell / /etc/environment / systemd drop-in 三种写法都算）
+XBD_PX_RE='^[[:space:]]*(export[[:space:]]+|unset[[:space:]]+|Environment=)?"?(http_proxy|https_proxy|HTTP_PROXY|HTTPS_PROXY|all_proxy|ALL_PROXY)"?='
+XBD_PX_UNSET_RE='^[[:space:]]*unset[[:space:]]+"?(http_proxy|https_proxy|HTTP_PROXY|HTTPS_PROXY|all_proxy|ALL_PROXY)"?[[:space:]]*$'
+
+# 这份文件是否真的设置了代理（只写 no_proxy 不算接管）
+_xbd_proxy_claims() {
+  [ -f "$1" ] || return 1
+  grep -qE "$XBD_PX_RE|$XBD_PX_UNSET_RE" "$1" 2>/dev/null
+}
+
+# 本机**别人**的代理接管点，输出 <style>|<file>，style ∈ sh|env|systemd。
+# 输出顺序即生效顺序（profile.d 按字典序 source，后者覆盖前者）。
+xbd_proxy_owners() {
+  local f
+  for f in /etc/profile.d/*.sh; do
+    [ -e "$f" ] || continue
+    [ "$f" = "$XBD_PROFILE_FILE" ] && continue
+    _xbd_proxy_claims "$f" && printf 'sh|%s\n' "$f"
+  done
+  _xbd_proxy_claims /etc/environment && printf 'env|/etc/environment\n'
+  for f in /etc/systemd/system/docker.service.d/*.conf; do
+    [ -e "$f" ] || continue
+    [ "$f" = "$XBD_DOCKER_PROXY" ] && continue
+    _xbd_proxy_claims "$f" && printf 'systemd|%s\n' "$f"
+  done
+  return 0
+}
+
+# 可能携带本机代理配置的文件：别人的接管点 + 我们自己的落点
+xbd_proxy_files() {
+  xbd_proxy_owners
+  [ -f "$XBD_PROFILE_FILE" ] && printf 'sh|%s\n' "$XBD_PROFILE_FILE"
+  [ -f "$XBD_DOCKER_PROXY" ] && printf 'systemd|%s\n' "$XBD_DOCKER_PROXY"
+  [ -f /etc/environment ]    && printf 'env|/etc/environment\n'
+  return 0
+}
+
+# $1=style $2=port → 哪些文件正在带我们的代理（一行一个路径）
+_xbd_proxy_hits() {
+  local lines st f
+  lines="$(xbd_proxy_files || true)"
+  while IFS='|' read -r st f; do
+    [ "$st" = "$1" ] || continue
+    grep -q "127.0.0.1:$2" "$f" 2>/dev/null && printf '%s\n' "$f"
+  done <<< "$lines"
+  return 0
+}
+
+# $1=style $2=port → 给人看的一句话
+_xbd_proxy_where() {
+  local hit
+  hit="$(_xbd_proxy_hits "$1" "$2" | paste -sd, -)"
+  if [ -n "$hit" ]; then printf '已配置（%s）' "$hit"; else printf '未配置'; fi
+}
+
+# 给面板用：本机接管的**真实**状态（含"接管点其实在别人那份配置里"的情况）
+xbd_proxy_json() {
+  xbd_load_ports
+  local p="$XBD_PORT_HTTP" sh_hit dk_hit ev_hit
+  sh_hit="$(_xbd_proxy_hits sh      "$p" | paste -sd' ' -)"
+  dk_hit="$(_xbd_proxy_hits systemd "$p" | paste -sd' ' -)"
+  ev_hit="$(_xbd_proxy_hits env     "$p" | paste -sd' ' -)"
+  printf '{"enabled":%s,"shell":"%s","docker":"%s","environment":"%s","owners":%s}\n' \
+    "$([ -n "$sh_hit$dk_hit$ev_hit" ] && echo true || echo false)" \
+    "$sh_hit" "$dk_hit" "$ev_hit" "$(xbd_proxy_owners | wc -l)"
+}
+
+# 归属登记：第一次接管某个文件时把原文备份下来（off 据此还原，而不是删掉别人的配置）
+_xbd_proxy_record() {   # $1=created|edited $2=file
+  local act="$1" f="$2" prev
+  mkdir -p "$XBD_PROXY_STATE"
+  prev="$(_xbd_proxy_recorded "$f")"
+  if [ -n "$prev" ]; then
+    [ "$prev" = "$act" ] || warn "$f 已登记为 $prev，保留最早的备份不动"
+    return 0
+  fi
+  if [ "$act" = edited ]; then
+    cp -a "$f" "$XBD_PROXY_STATE/$(printf '%s' "$f" | tr '/' '_').orig" || return 1
+  fi
+  printf '%s\t%s\n' "$act" "$f" >> "$XBD_PROXY_STATE/manifest"
+}
+
+_xbd_proxy_recorded() {   # $1=file → created|edited|空
+  [ -s "$XBD_PROXY_STATE/manifest" ] || return 0
+  awk -F'\t' -v p="$1" '$2==p{print $1; exit}' "$XBD_PROXY_STATE/manifest"
+  return 0
+}
+
+# 就地改写别人的配置：代理变量行按我们的值重写，缺的变量在同一份文件里补齐
+# （缺 http_proxy 却有 HTTP_PROXY 的程序不少，补齐才是一次完整的接管），
+# 其余内容 —— 注释、unset、别的 export、段落结构 —— 原样保留。
+# 补齐块插在**最后一条**代理变量之后，不追加到文件末尾：systemd drop-in 的
+# 末尾可能已经在别的段落（[Unit]/[Install]）里，追加过去就不是给 [Service] 了。
+# 用 cat > 回写而非 mv，保持 inode / 权限 / 属主不变。
+_xbd_proxy_rewrite() {   # $1=file $2=style(sh|env|systemd) $3=http $4=no_proxy
+  local f="$1" tmp
+  tmp="$(mktemp)" || return 1
+  awk -v style="$2" -v http="$3" -v nop="$4" '
+    BEGIN {
+      split("http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy no_proxy NO_PROXY", ord, " ")
+      for (i = 1; i <= 7; i++) V[ord[i]] = 1
+    }
+    function render(n, v) {
+      v = (n == "no_proxy" || n == "NO_PROXY") ? nop : http
+      if (style == "systemd")  out = "Environment=\"" n "=" v "\""
+      else if (style == "env") out = n "=\"" v "\""
+      else                     out = "export " n "=\"" v "\""
+      return out
+    }
+    function emit_missing(   i, n, gap) {
+      for (i = 1; i <= 7; i++) {
+        n = ord[i]
+        if (n in seen) continue
+        if (!gap) { print ""; print "# 以下由 xbd proxy on 补齐（原配置只设了部分代理变量）"; gap = 1 }
+        print render(n)
+      }
+    }
+    {
+      if ($0 ~ /^[ \t]*#/) { lines[NR] = $0; next }
+      t = $0
+      sub(/^[ \t]+/, "", t); sub(/^(export|unset)[ \t]+/, "", t)
+      sub(/^Environment=/, "", t); sub(/^"/, "", t)
+      n = t; sub(/[^A-Za-z_].*$/, "", n)
+      if (n in V && (t == n || t ~ ("^" n "="))) {
+        lines[NR] = render(n); seen[n] = 1; last = NR; next
+      }
+      lines[NR] = $0
+    }
+    END {
+      for (i = 1; i <= NR; i++) {
+        print lines[i]
+        if (i == last) emit_missing()
+      }
+      if (last == 0) emit_missing()
+    }' "$f" > "$tmp" || { rm -f "$tmp"; return 1; }
+  cat "$tmp" > "$f" || { rm -f "$tmp"; return 1; }
+  rm -f "$tmp"
+}
+
+_xbd_proxy_new_sh() {     # $1=file $2=http $3=no_proxy
+  cat > "$1" <<EOF
+# 由 xbd proxy on 生成 —— 本机进程的显式代理，指向本项目的 Xray。
+# 关闭: xbd proxy off
+export http_proxy="$2"
+export https_proxy="$2"
+export HTTP_PROXY="$2"
+export HTTPS_PROXY="$2"
+export all_proxy="$2"
+export no_proxy="$3"
+export NO_PROXY="$3"
+EOF
+  chmod 0644 "$1"
+}
+
+_xbd_proxy_new_docker() { # $1=file $2=http $3=no_proxy
+  # 变量集合与 _xbd_proxy_rewrite 补齐的完全一致：
+  # 「别人接管 → 我们改写」和「没人接管 → 我们新建」必须得到同一份效果。
+  mkdir -p "$(dirname "$1")"
+  cat > "$1" <<EOF
+# 由 xbd proxy on 生成 —— docker 守护进程拉镜像走本项目的 Xray。
+# 关闭: xbd proxy off
+[Service]
+Environment="http_proxy=$2"
+Environment="https_proxy=$2"
+Environment="HTTP_PROXY=$2"
+Environment="HTTPS_PROXY=$2"
+Environment="all_proxy=$2"
+Environment="no_proxy=$3"
+Environment="NO_PROXY=$3"
+EOF
+  chmod 0644 "$1"
+}
+
+# 处理一个落点：本机已有接管 → 就地改那一份；没有 → 才新建我们自己的文件。
+# $1=style $2=新建时的文件名（空 = 只改不建）$3=写入器 $4=http $5=no_proxy
+_xbd_proxy_slot() {
+  local style="$1" dflt="$2" writer="$3" owner
+  owner="$({ xbd_proxy_owners || true; } | awk -F'|' -v s="$style" '$1==s{print $2}' | tail -n1)"
+  if [ -n "$owner" ]; then
+    if [ -n "$dflt" ] && [ -f "$dflt" ] && [ "$dflt" != "$owner" ]; then
+      rm -f "$dflt" && info "已移除旧版留下的 $dflt（两份配置会互相覆盖）"
+    fi
+    ok "检测到本机已被接管: $owner —— 就地改这份配置，不新增文件"
+    _xbd_proxy_record edited "$owner" || { bad "备份失败，已放弃改写: $owner"; return 1; }
+    _xbd_proxy_rewrite "$owner" "$style" "$4" "$5" || { bad "改写失败: $owner"; return 1; }
+    ok "已改写 $owner"
+    return 0
+  fi
+  [ -n "$dflt" ] || return 0    # 只改不建（/etc/environment 不做代理就不管它）
+  _xbd_proxy_record created "$dflt" || return 1
+  "$writer" "$dflt" "$4" "$5"
+  ok "已写 $dflt"
+}
 
 cmd_proxy() {
   local op="${1:-status}"
@@ -1360,6 +1586,7 @@ cmd_proxy() {
     on|enable)   xbd_proxy_on ;;
     off|disable) xbd_proxy_off ;;
     status|"")   xbd_proxy_status ;;
+    json)        xbd_proxy_json ;;
     -h|--help)   info "用法: xbd proxy <on|off|status>   让本机进程（docker 等）走我们的代理" ;;
     *) die "未知操作: $op" ;;
   esac
@@ -1367,23 +1594,31 @@ cmd_proxy() {
 
 xbd_proxy_status() {
   xbd_load_ports
-  local http="http://127.0.0.1:$XBD_PORT_HTTP" socks="socks5://127.0.0.1:$XBD_PORT_HTTP"
   printf '  HTTP 代理入口:    127.0.0.1:%s  %s\n' "$XBD_PORT_HTTP" \
     "$(port_listening_tcp "$XBD_PORT_HTTP" && echo LISTENING || echo 未监听)"
   printf '  LAN SOCKS5 入口:  %s:%s  %s\n' "$XBD_LISTEN_ADDR" "$XBD_PORT_NORMAL" \
     "$(port_listening_tcp "$XBD_PORT_NORMAL" && echo LISTENING || echo 未监听)"
   printf '  LAN HTTP 入口:    %s:%s  %s\n' "$XBD_LISTEN_ADDR" "$XBD_PORT_LAN_HTTP" \
     "$(port_listening_tcp "$XBD_PORT_LAN_HTTP" && echo LISTENING || echo 未监听)"
-  printf '  shell 代理:       %s\n' "$(grep -q "127.0.0.1:$XBD_PORT_HTTP" "$XBD_PROFILE_FILE" 2>/dev/null && echo 已配置 || echo 未配置)"
-  printf '  docker 代理:      %s\n' "$(grep -q "127.0.0.1:$XBD_PORT_HTTP" "$XBD_DOCKER_PROXY" 2>/dev/null && echo 已配置 || echo 未配置)"
-  [ -f "$XBD_PROFILE_FILE" ] && grep -q 7890 "$XBD_PROFILE_FILE" 2>/dev/null && warn "  仍指向旧的 7890（mihomo），执行 xbd proxy on 切换"
+  printf '  shell 代理:       %s\n' "$(_xbd_proxy_where sh "$XBD_PORT_HTTP")"
+  printf '  docker 代理:      %s\n' "$(_xbd_proxy_where systemd "$XBD_PORT_HTTP")"
+  printf '  /etc/environment: %s\n' "$(_xbd_proxy_where env "$XBD_PORT_HTTP")"
+  local own; own="$(xbd_proxy_owners || true)"
+  if [ -n "$own" ]; then
+    info "  本机另有代理接管点（on 时会就地改它，不新增文件）:"
+    while IFS='|' read -r st f; do info "    [$st] $f"; done <<< "$own"
+  else
+    printf '  本机另有代理接管点: 无\n'
+  fi
 }
 
 xbd_proxy_on() {
   need_root
   xbd_load_ports
   step "配置本机显式代理 → Xray"
-  local http="http://127.0.0.1:$XBD_PORT_HTTP" socks="socks5://127.0.0.1:$XBD_PORT_HTTP"
+  local http nop others
+  http="$(xbd_proxy_url_http)"
+  nop="127.0.0.1,localhost,::1,$XBD_LISTEN_ADDR,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12"
 
   # 依赖：常驻 Xray 的 HTTP 入站必须在听
   if ! port_listening_tcp "$XBD_PORT_HTTP"; then
@@ -1397,31 +1632,19 @@ xbd_proxy_on() {
   fi
   ok "HTTP 代理已就绪: $http"
 
-  # 1) 登录 shell
-  cat > "$XBD_PROFILE_FILE" <<EOF
-# 由 xbd proxy on 生成 —— 本机进程的显式代理，指向本项目的 Xray。
-# 恢复 mihomo: systemctl start mihomo.service 然后 xbd proxy off
-export http_proxy="$http"
-export https_proxy="$http"
-export HTTP_PROXY="$http"
-export HTTPS_PROXY="$http"
-export all_proxy="$socks"
-export no_proxy="127.0.0.1,localhost,::1,$XBD_LISTEN_ADDR,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12"
-export NO_PROXY="\$no_proxy"
-EOF
-  chmod 0644 "$XBD_PROFILE_FILE"
-  ok "已写 $XBD_PROFILE_FILE"
+  others="$(xbd_proxy_owners || true)"
+  if [ -n "$others" ]; then
+    info "本机已有的代理接管点:"
+    while IFS='|' read -r st f; do info "  [$st] $f"; done <<< "$others"
+  else
+    info "本机没有别的代理接管点，将新建配置"
+  fi
 
-  # 2) docker 守护进程（拉镜像走代理）
-  mkdir -p "$(dirname "$XBD_DOCKER_PROXY")"
-  cat > "$XBD_DOCKER_PROXY" <<EOF
-[Service]
-Environment="HTTP_PROXY=$http"
-Environment="HTTPS_PROXY=$http"
-Environment="NO_PROXY=localhost,127.0.0.1,::1,$XBD_LISTEN_ADDR,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12"
-EOF
-  ok "已写 $XBD_DOCKER_PROXY"
-  systemctl daemon-reload
+  _xbd_proxy_slot sh      "$XBD_PROFILE_FILE" _xbd_proxy_new_sh     "$http" "$nop" || return 1
+  _xbd_proxy_slot env     ""                  _xbd_proxy_new_sh     "$http" "$nop" || true
+  _xbd_proxy_slot systemd "$XBD_DOCKER_PROXY" _xbd_proxy_new_docker "$http" "$nop" || return 1
+
+  systemctl daemon-reload 2>/dev/null || true
   if unit_active docker.service; then
     warn "重启 docker 以加载代理（容器会短暂中断）"
     systemctl restart docker.service && ok "docker 已重启" || warn "docker 重启失败，可稍后手动重启"
@@ -1429,115 +1652,49 @@ EOF
 
   info ""
   ok "显式代理已启用"
+  printf '  shell:  %s\n' "$(_xbd_proxy_where sh "$XBD_PORT_HTTP")"
+  printf '  docker: %s\n' "$(_xbd_proxy_where systemd "$XBD_PORT_HTTP")"
   info "  新开的 shell 会自动带上代理变量"
-  info "  当前 shell 立即生效: source $XBD_PROFILE_FILE"
-  info "  docker 拉镜像: 已生效"
+  info "  当前 shell 立即生效: 重新登录，或 source 上面那个文件"
+  info "  关闭: xbd proxy off（别人原来的配置会按备份还原）"
 }
 
 xbd_proxy_off() {
   need_root
   step "关闭本机显式代理"
-  if [ -f "$XBD_PROFILE_FILE" ]; then
-    rm -f "$XBD_PROFILE_FILE"
-    ok "已移除 $XBD_PROFILE_FILE"
+  local act path bak touched=0 f
+  if [ -s "$XBD_PROXY_STATE/manifest" ]; then
+    while IFS=$'\t' read -r act path; do
+      [ -n "${path:-}" ] || continue
+      bak="$XBD_PROXY_STATE/$(printf '%s' "$path" | tr '/' '_').orig"
+      if [ "$act" = edited ]; then
+        if [ -f "$bak" ] && [ -f "$path" ]; then
+          cp -a "$bak" "$path" && ok "已还原为原配置: $path" && touched=1
+        else
+          warn "跳过 $path（原备份或目标文件已不存在）"
+        fi
+      elif [ -f "$path" ]; then
+        rm -f "$path" && ok "已移除 $path" && touched=1
+      fi
+    done < "$XBD_PROXY_STATE/manifest"
+    rm -f "$XBD_PROXY_STATE/manifest"
   fi
-  if [ -f "$XBD_DOCKER_PROXY" ]; then
-    rm -f "$XBD_DOCKER_PROXY"
-    ok "已移除 $XBD_DOCKER_PROXY"
-    systemctl daemon-reload
+  # 兼容早期版本留下的文件（当时没有 manifest）
+  for f in "$XBD_PROFILE_FILE" "$XBD_DOCKER_PROXY"; do
+    [ -f "$f" ] && rm -f "$f" && ok "已移除 $f" && touched=1
+  done
+  if [ "$touched" = 1 ]; then
+    systemctl daemon-reload 2>/dev/null || true
     if unit_active docker.service; then
       warn "重启 docker 以清掉代理环境变量"
       systemctl restart docker.service && ok "docker 已重启" || true
     fi
   fi
-  info "本机将恢复为直连。注意：GitHub / Docker Hub 直连不通时需要重新开启。"
-}
-
-# ---------------------------------------------------------------------------
-# 方案 B：局域网透明接入（可选、默认关闭）
-# ---------------------------------------------------------------------------
-# 只劫持 **出站** 到 80/443 的 TCP，并显式豁免：
-#   SSH(22)、DNS(53)、LAN 网段、回环、节点地址、面板端口、代理端口自身
-# 这些豁免是硬性要求 —— 少了任何一条都可能把自己锁在外面或形成代理环路。
-XBD_NFT_TABLE="xbd_takeover"
-XBD_TAKEOVER_MARK=0x2333
-
-cmd_takeover() {
-  local op="${1:-status}"
-  case "$op" in
-    on|enable)   xbd_takeover_on ;;
-    off|disable) xbd_takeover_off ;;
-    status|"")   xbd_takeover_status ;;
-    -h|--help)   info "用法: xbd takeover <on|off|status>   局域网透明接入（可选）" ;;
-    *) die "未知操作: $op" ;;
-  esac
-}
-
-xbd_takeover_status() {
-  xbd_load_ports
-  if nft list table ip "$XBD_NFT_TABLE" >/dev/null 2>&1; then
-    printf '  透明接入: 已启用\n'
-    nft list table ip "$XBD_NFT_TABLE" 2>/dev/null | grep -cE '^\s' | xargs printf '    规则行数: %s\n'
+  if [ "$touched" = 0 ]; then
+    info "本机本来就没有配置我们的代理，无需改动。"
   else
-    printf '  透明接入: 未启用（默认）\n'
+    info "本机已恢复为直连；被接管的原配置已还原（备份留在 $XBD_PROXY_STATE）。"
   fi
-  printf '  局域网入口: %s:%s (SOCKS5)  %s:%s (HTTP)\n' \
-    "$XBD_LISTEN_ADDR" "$XBD_PORT_NORMAL" "$XBD_LISTEN_ADDR" "$XBD_PORT_HTTP"
-}
-
-xbd_takeover_on() {
-  need_root
-  xbd_load_ports
-  step "启用局域网透明接入"
-  command -v nft >/dev/null 2>&1 || die "需要 nftables"
-
-  # 前置安全检查：SSH 必须存活、代理必须在听
-  port_listening_tcp "$XBD_PORT_NORMAL" || { bad "常驻 SOCKS5 未监听，先 xbd start"; return 1; }
-
-  # 先打印回滚方式，再动规则
-  info "回滚命令: nft delete table ip $XBD_NFT_TABLE   （或 xbd takeover off）"
-  info "SSH 已显式豁免（dport 22 直接 return），不会断开当前连接"
-  echo
-
-  nft delete table ip "$XBD_NFT_TABLE" 2>/dev/null || true
-  nft -f - <<EOF
-table ip $XBD_NFT_TABLE {
-  chain prerouting {
-    type nat hook prerouting priority dstnat; policy accept;
-    # ---- 硬性豁免：任何一条都不许省 ----
-    iif lo return                          # 回环
-    ip daddr $XBD_LISTEN_ADDR return       # 本机自己
-    ip daddr 192.168.0.0/16 return         # LAN（含 SSH、本机服务）
-    ip daddr 10.0.0.0/8 return
-    ip daddr 172.16.0.0/12 return
-    ip daddr 127.0.0.0/8 return
-    tcp dport 22 return                    # SSH 再保一道
-    tcp dport 53 return                    # DNS 不动
-    udp dport 53 return
-    tcp dport $XBD_PORT_NORMAL return      # 代理端口自身，防环路
-    tcp dport $XBD_PORT_HTTP return
-    tcp dport $XBD_PORT_LAN_HTTP return
-    tcp dport $XBD_PANEL_PORT return       # 面板
-    tcp dport 18081 return                 # Browser Dialer 通道
-    # ---- 只劫持出站 web 流量 ----
-    tcp dport { 80, 443 } redirect to :$XBD_PORT_HTTP
-  }
-}
-EOF
-  if nft list table ip "$XBD_NFT_TABLE" >/dev/null 2>&1; then
-    ok "透明接入已启用（仅 80/443 → $XBD_PORT_HTTP，SSH/LAN/DNS 已豁免）"
-    info "局域网设备无需任何配置即可上网（网关指向本机 $XBD_LISTEN_ADDR）"
-    info "关闭: xbd takeover off"
-  else
-    bad "规则加载失败，已回滚"
-    return 1
-  fi
-}
-
-xbd_takeover_off() {
-  need_root
-  nft delete table ip "$XBD_NFT_TABLE" 2>/dev/null && ok "透明接入已关闭" || info "透明接入本来就没启用"
-  info "局域网设备恢复直连；显式代理入口（:${XBD_PORT_NORMAL:-1080}）不受影响"
 }
 
 # Xray 内核版本与更新（之前 cmd_update 只同步项目文件，从不更新二进制）
@@ -1703,7 +1860,9 @@ Xray Client Web Manager v$XBD_VERSION
 
   本机上网 / 局域网接入
     proxy on|off|status                    让本机进程（docker/apt/curl）走我们的代理
-    takeover on|off|status                 局域网透明接入（可选，默认关闭）
+                                           （发现别的服务已接管系统代理时，就地改那一份）
+    局域网设备：在设备的代理设置里填「本机 IP:1080(SOCKS5) / :10809(HTTP)」即可，
+                不需要本机做任何改动（透明网关模式已移除，见 docs/mode3-lan-gateway/）
 
   状态与诊断
     status [--quick]                       状态（含当前节点实际走哪条 TLS 路径）
@@ -1740,7 +1899,6 @@ xbd_main() {
     panel)      cmd_panel "$@" ;;
     ech)        cmd_ech "$@" ;;
     proxy)      cmd_proxy "$@" ;;
-    takeover)   cmd_takeover "$@" ;;
     xray)       cmd_xray "$@" ;;
     export)     cmd_export "$@" ;;
     cert)       cmd_cert "$@" ;;
