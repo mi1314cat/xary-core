@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Xray Client Web Manager — 面板后端。
 
-设计要点（对应需求第四、十四、十五条）：
-    * 节点是共享资产：节点卡片提供「普通连接」与「Browser Dialer」两种使用方式，
-      点击只切换**连接模式**，不修改节点本身；
-    * 状态栏明确显示当前真正使用的模式，而不是一个模糊的 Running；
-    * Browser Dialer 是按需启动的：按钮只影响 dialer/chromium 两个单元，
-      常驻 Xray 永远不动 —— 关闭 Browser Dialer 不会中断普通代理。
+设计要点：
+    * **唯一一个 Xray 实例**，同时提供 SOCKS 与 HTTP 两个 LAN 入站，并始终带
+      XRAY_BROWSER_DIALER —— 所以不存在"普通模式 / Browser Dialer 模式"的切换，
+      也没有第二条 SOCKS 端口。节点是共享资产，换节点不改任何服务。
+    * Browser Dialer 是**节点的属性**：当前节点是 xhttp/websocket 且非 REALITY 时
+      Xray 把 TLS 交给 Chromium，否则自己完成 TLS。状态栏如实显示"这个节点走哪条路"。
+    * Chromium 是 Browser Dialer 的运行时依赖，面板只控制它开/关：
+      它是唯一实例的常驻依赖，停掉后依赖浏览器拨号的节点会失败，其余节点不受影响。
 
 安全：只监听配置里的地址；可选访问令牌；动作走白名单，参数以 argv 传递。
 """
@@ -31,7 +33,6 @@ CONF = os.path.join(PREFIX, "config")
 RUNTIME = os.path.join(PREFIX, "runtime")
 
 U_XRAY = "xray-client.service"
-U_DIALER = "xray-dialer.service"
 U_CHROMIUM = "chromium-browser-dialer.service"
 U_PANEL = "browser-dialer-panel.service"
 U_TIMER = "browser-dialer-health.timer"
@@ -117,7 +118,6 @@ def build_state():
     ports = os.path.join(CONF, "ports.env")
     state["ports_cfg"] = {
         "normal": cfg_get(ports, "PORT_NORMAL", "1080"),
-        "dialer": cfg_get(ports, "PORT_DIALER", "1081"),
         "http": cfg_get(ports, "PORT_HTTP", "10808"),
         "lan_http": cfg_get(ports, "PORT_LAN_HTTP", "10809"),
         "listen": cfg_get(ports, "LISTEN_ADDR", "127.0.0.1"),
@@ -183,7 +183,84 @@ def act_node_use(ident):
         return False, out or err
     sh_bg(["bash", "-c", "sleep 1; systemctl restart " + U_XRAY])
     time.sleep(4)
-    return True, "已切换节点，常驻 Xray 正在重启"
+    msg = "已切换节点，Xray 正在重启"
+    if caps.get("can_use_dialer") and not unit_state(U_CHROMIUM)["active"]:
+        started, note = ensure_chromium()
+        msg += f"；{note}" if started else f"；⚠ {note}（该节点需要浏览器拨号，请手动执行 xbd dialer on）"
+    return True, msg
+
+
+def act_node_browser(ident, value):
+    """单个节点的"是否用浏览器完成 TLS"开关。
+
+    协议不支持时后端会拒绝打开；**支持的节点后端会拒绝关闭** ——
+    因为 xhttp/websocket 出站只要浏览器在线就被无条件接管（见 Xray 源码
+    splithttp/dialer.go:50、websocket/dialer.go:114），关掉只会让该节点不可用。
+    """
+    path = node_path(ident)
+    if not path:
+        return False, "找不到该节点"
+    rc, out, err = sh([os.path.join(PREFIX, "bin", "xbd"), "node", "browser",
+                       os.path.basename(path), str(value)], timeout=300)
+    return rc == 0, ((out or err or "").strip() or "已保存")
+
+
+def act_node_use_as(ident, mode):
+    """切到某个节点，并明确指定用普通连接还是 BD 连接。
+
+    这是把"用哪个节点"和"用哪种 TLS"合成一个动作 —— 用户点「BD 连接」时，
+    期望的是"切过去并且用浏览器"，而不是切过去之后还得再找开关。
+    """
+    path = node_path(ident)
+    if not path:
+        return False, "找不到该节点"
+    caps = compat_of(path) or {}
+    if mode == "bd" and not caps.get("protocol_may_dialer"):
+        return False, "该节点不走浏览器转发（只对 vless 的 ws/xhttp 生效）"
+    rc, out, err = sh([os.path.join(PREFIX, "bin", "xbd"), "node", "use-as",
+                       os.path.basename(path), mode], timeout=300)
+    if rc != 0:
+        return False, (out or err or "切换失败")
+    # 节点切换与 TLS 方式变化都会让旧进程的环境变量失效，统一重启一次
+    sh(["systemctl", "restart", U_XRAY], timeout=90)
+    time.sleep(5)
+    if not unit_state(U_XRAY)["active"]:
+        return False, "Xray 重启失败，请查看 xbd status"
+    # 用浏览器时确保 Chromium 在线；不用时确保停掉（省内存）
+    if mode == "bd":
+        okc, notec = ensure_chromium()
+        if not okc:
+            return True, "已切到 %s，但 %s" % (os.path.basename(path), notec)
+        return True, "已切到 BD 连接（浏览器 TLS），%s" % notec
+    if unit_state(U_CHROMIUM)["active"]:
+        sh([os.path.join(PREFIX, "bin", "xbd"), "dialer", "off"], timeout=180)
+    return True, "已切到普通连接（Xray 自带 TLS），Chromium 已关闭以释放内存"
+
+
+def act_node_probe(ident):
+    """真实探测一个节点的浏览器路径（临时起 Xray + Chromium，不动生产服务）。"""
+    path = node_path(ident)
+    if not path:
+        return False, "找不到该节点"
+    rc, out, err = sh(["python3", os.path.join(PREFIX, "tools", "browserprobe.py"),
+                       path, "--save", "--json"], timeout=180)
+    try:
+        d = json.loads(out or "{}")
+    except ValueError:
+        d = {}
+    if d.get("not_applicable"):
+        return True, "该节点不走浏览器转发：" + str(d.get("reason", ""))
+    if d.get("ok"):
+        return True, "实测可用（出口 %s）" % (d.get("exit_ip") or "已通")
+    return True, "实测不可用：" + str(d.get("reason") or err or "未知原因")
+
+
+def ensure_chromium():
+    """确保 Browser Dialer 的运行时在线。节点依赖它却没跑时，代理会静默失败。"""
+    if unit_state(U_CHROMIUM)["active"]:
+        return True, "Chromium 已在线"
+    rc, out, err = sh([os.path.join(PREFIX, "bin", "xbd"), "dialer", "on"], timeout=300)
+    return rc == 0, ("已自动启动 Chromium" if rc == 0 else (out or err or "Chromium 启动失败"))
 
 
 def act_node_remove(ident):
@@ -243,7 +320,7 @@ def act_xray_upgrade():
     note = "（SHA256 已校验）" if d.get("sha256_verified") else "（未取得官方 .dgst）"
     # 换二进制后必须重启，否则还在跑旧内核
     sh(["systemctl", "restart", U_XRAY], timeout=60)
-    if unit_state(U_DIALER)["active"]:
+    if unit_state(U_CHROMIUM)["active"]:
         sh(["systemctl", "restart", U_CHROMIUM], timeout=60)
     return True, f'内核已更新 {d.get("from") or "无"} → {d.get("to")} {note}，服务已重启'
 
@@ -297,19 +374,35 @@ def act_node_check(ident):
 
 
 def act_mode(mode):
-    """切换连接模式。只动该动的单元 —— 这是解耦的核心。"""
+    """Browser Dialer 运行时的开关。
+
+    注意：这里**没有**"切换到普通模式"这回事 —— 唯一 Xray 实例始终同时服务
+    SOCKS 与 HTTP，并始终带 XRAY_BROWSER_DIALER。停掉 Chromium 不会中断任何
+    不需要浏览器拨号的节点，只是让依赖它的那些节点暂时不可用。
+    """
     xbd = os.path.join(PREFIX, "bin", "xbd")
-    if mode == "normal":
+    if mode in ("browser_dialer", "on"):
+        rc, out, err = sh([xbd, "dialer", "on"], timeout=300)
+        if rc != 0:
+            return False, (out or err or "启动失败")
+        # 只回报结果，不回放整段脚本输出（页面上那样很难读）
+        ws = (build_state() or {}).get("ws_connections", 0)
+        return True, (f"Chromium 已启动，浏览器已接上（{ws} 条 WS）" if ws
+                      else "Chromium 已启动，浏览器还在连接（health timer 会在 30 秒内自愈）")
+    if mode in ("normal", "off"):
         rc, out, err = sh([xbd, "dialer", "off"], timeout=180)
-        ok = rc == 0
-        state = build_state()
-        if ok and state.get("services", {}).get("xray", {}).get("active"):
-            return True, "已切换到普通 Xray 模式（Browser Dialer 与 Chromium 已关闭，Xray 继续运行）"
-        return ok, out or err or "切换完成"
-    if mode == "browser_dialer":
-        rc, out, err = sh([xbd, "dialer", "on"], timeout=240)
-        return rc == 0, (out or err)
-    return False, "未知模式"
+        if rc != 0:
+            return False, (out or err or "关闭失败")
+        needs = False
+        try:
+            rc2, o2, _ = sh(["python3", COMPAT_PY, "json",
+                             os.path.realpath(os.path.join(NODES, "current"))], timeout=30)
+            needs = rc2 == 0 and json.loads(o2 or "{}").get("can_use_dialer") is True
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+        warn = "⚠ 当前节点依赖浏览器拨号，它现在会拨号失败" if needs else "当前节点不需要浏览器拨号，不受影响"
+        return True, f"Chromium 已停止，Xray 继续运行；{warn}"
+    return False, "未知操作"
 
 
 def act_service(op):
@@ -352,11 +445,10 @@ def act_port_set(kind, value):
         return False, f"端口已改，但配置生成失败: {o2 or e2}"
     if kind == "channel":
         # 内部通道两端都要重启，否则 Chromium 还在连旧端口
-        sh([xbd, "dialer", "off"], timeout=180)
-        rc3, o3, e3 = sh([xbd, "dialer", "on"], timeout=300)
-        if unit_state(U_DIALER)["active"]:
-            return rc3 == 0, (o3 or e3 or f"内部通道已改为 {value}")
-        return True, f"内部通道已改为 {value}（下次启用 dialer 时生效）"
+        sh(["systemctl", "restart", U_XRAY, U_CHROMIUM], timeout=120)
+        if unit_state(U_CHROMIUM)["active"]:
+            return True, f"内部通道已改为 {value}，Xray 与 Chromium 已重启"
+        return True, f"内部通道已改为 {value}（Chromium 未运行，下次启动时生效）"
     sh_bg(["bash", "-c", "sleep 1; systemctl restart " + U_XRAY])
     time.sleep(3)
     return True, f"{kind} 端口已改为 {value}"
@@ -372,7 +464,6 @@ def act_conninfo():
     p_socks = cfg_get(ports, "PORT_NORMAL", "1080")
     p_lan_http = cfg_get(ports, "PORT_LAN_HTTP", "10809")
     p_http = cfg_get(ports, "PORT_HTTP", "10808")
-    p_dialer = cfg_get(ports, "PORT_DIALER", "1081")
 
     node_name = "LAN"
     node_path = os.path.join(NODES, "current")
@@ -385,7 +476,7 @@ def act_conninfo():
 
     yaml_text = f"""# 由 Xray Client Manager 生成 —— 复制到需要代理的机器上使用
 # 本机地址: {listen}
-
+# 两个入口都由同一个 Xray 实例服务，所有节点通用；节点是否需要浏览器拨号由服务器决定。
 proxies:
   - name: "{safe}-SOCKS5"
     type: socks5
@@ -398,26 +489,14 @@ proxies:
     port: {p_lan_http}
 """
 
-    yaml_dialer = f"""
-# Browser Dialer 模式（同一台服务器，TLS 由服务器上的 Chromium 完成）
-# 需要先在面板上启用 Browser Dialer
-  - name: "{safe}-BrowserDialer"
-    type: socks5
-    server: {listen}
-    port: {p_dialer}
-    udp: true
-"""
-
     links = [
         {"label": "SOCKS5（推荐，支持 UDP）", "env": "socks5", "url": f"socks5://{listen}:{p_socks}"},
         {"label": "HTTP 代理", "env": "http", "url": f"http://{listen}:{p_lan_http}"},
-        {"label": "Browser Dialer（按需启用）", "env": "socks5", "url": f"socks5://{listen}:{p_dialer}"},
     ]
 
     return True, json.dumps({
         "listen": listen,
         "yaml": yaml_text,
-        "yaml_dialer": yaml_dialer,
         "links": links,
         "env_example": (f'export http_proxy="http://{listen}:{p_lan_http}"\n'
                         f'export https_proxy="http://{listen}:{p_lan_http}"\n'
@@ -449,14 +528,12 @@ def act_port(kind, value):
     rc2, out2, err2 = sh([xbd, "apply"], timeout=120)
     if rc2 != 0:
         return False, f"端口已改但配置生成失败: {out2 or err2}"
-    if kind == "dialer":
-        if unit_state(U_DIALER)["active"]:
-            rc3, o3, e3 = sh([xbd, "dialer", "on"], timeout=240)
-            return rc3 == 0, o3 or e3
-        return True, f"Dialer 端口已改为 {value}（下次启用 dialer 时生效）"
+    if kind == "channel":
+        sh(["systemctl", "restart", U_XRAY, U_CHROMIUM], timeout=120)
+        return True, f"内部通道已改为 {value}，两端已重启"
     sh_bg(["bash", "-c", "sleep 1; systemctl restart " + U_XRAY])
     time.sleep(4)
-    return True, f"普通模式端口已改为 {value}，Xray 已重启"
+    return True, f"端口已改为 {value}，Xray 已重启"
 
 
 def act_config_update():
@@ -478,6 +555,9 @@ def act_ech():
 DISPATCH = {
     "import": lambda p: act_import(str(p.get("uri", "")).strip()),
     "node_use": lambda p: act_node_use(p.get("ident", "")),
+    "node_browser": lambda p: act_node_browser(p.get("ident", ""), p.get("value", "auto")),
+    "node_probe": lambda p: act_node_probe(p.get("ident", "")),
+    "node_use_as": lambda p: act_node_use_as(p.get("ident", ""), p.get("mode", "normal")),
     "node_remove": lambda p: act_node_remove(p.get("ident", "")),
     "node_check": lambda p: act_node_check(p.get("ident", "")),
     "node_latency": lambda p: act_node_latency(p.get("ident", "")),
@@ -611,20 +691,22 @@ display:none;font-size:13px;white-space:pre-wrap}
   </tr></thead><tbody id="tb-nodes"></tbody></table>
   <div class="hint">「普通连接」与「Browser Dialer」只是同一节点的两种用法，切换不会修改节点本身。</div>
 
-  <div class="card"><h2>Browser Dialer</h2>
-    <div class="row"><span class="k">Browser Dialer</span><span class="v" id="s-dialer">—</span></div>
-    <div class="row"><span class="k">Chromium</span><span class="v" id="s-chromium">—</span></div>
+  <div class="card"><h2>Browser Dialer（按节点自动生效）</h2>
+    <div class="row"><span class="k">当前节点走哪条路</span><span class="v" id="s-dialer">—</span></div>
+    <div class="row"><span class="k">Chromium 运行时</span><span class="v" id="s-chromium">—</span></div>
     <div class="row"><span class="k">浏览器连接数</span><span class="v" id="s-ws">—</span></div>
-    <div class="row"><span class="k">Dialer 入口</span><span class="v mono" id="s-dport">—</span></div>
+    <div class="row"><span class="k">Chromium 进程</span><span class="v" id="s-chromium-procs">—</span></div>
     <div class="mode-pick">
-      <button id="m-normal" onclick="setMode('normal')">普通连接</button>
-      <button id="m-dialer" onclick="setMode('browser_dialer')">Browser Dialer</button>
+      <button id="m-dialer" onclick="setMode('browser_dialer')">启动 Chromium</button>
+      <button id="m-normal" onclick="setMode('normal')"
+              title="会把当前节点切到普通连接（Xray 自带 TLS）并停掉 Chromium，释放约 890MB">停掉 Chromium</button>
     </div>
     <div class="hint" id="hint-dialer"></div>
   </div>
 
   <div class="card"><h2>运行概况</h2>
-    <div class="row"><span class="k">普通入口</span><span class="v mono" id="s-nport">—</span></div>
+    <div class="row"><span class="k">SOCKS5 入口</span><span class="v mono" id="s-nport">—</span></div>
+    <div class="row"><span class="k">HTTP 入口</span><span class="v mono" id="s-hport">—</span></div>
     <div class="row"><span class="k">代理连通</span><span class="v" id="s-proxy">—</span></div>
     <div class="row"><span class="k">出口 IP</span><span class="v mono" id="s-ip2">—</span></div>
     <div class="hint">端口统一在下面的「端口设置」里改，这里只做显示 ——
@@ -764,6 +846,107 @@ function vtag(v, kind){
     : {SUPPORTED:'✓ 支持',SUPPORTED_WITH_WARNING:'⚠ 支持',NOT_SUPPORTED:'✗ 不支持'}[v];
   return `<span class="tag ${m[v]||''}">${ESC(label||v||'?')}</span>`;
 }
+// 每节点的"浏览器"开关。
+//   协议不支持 -> 置灰不可点（它本来就走 Xray 自带 TLS，开了也没用）
+//   协议支持   -> 显示为"始终使用"并锁住：xhttp/websocket 出站只要浏览器在线就被
+//                Xray 无条件接管，关掉不是退回 Xray TLS，而是让该节点直接不可用。
+// 每节点的"浏览器"开关。
+//   协议不支持（非 vless 的 ws/xhttp、或 REALITY）-> 置灰，写了也没用
+//   协议支持 -> 可切换：默认（用浏览器）/ 强制用 / 强制不用（走 Xray 自带 TLS）
+// 切换会重启 Xray：是否带 XRAY_BROWSER_DIALER 是进程启动时决定的，不重启不生效。
+function browserToggle(n){
+  const c = n.compat || {};
+  const dialer = c.dialer || {};
+  const overall = dialer.overall || '';
+  const can = overall === 'SUPPORTED' || overall === 'SUPPORTED_WITH_WARNING';
+  const mayProto = !!c.protocol_may_dialer;      // 协议层面是否可能走浏览器
+  const probe = n.probe_ok;                       // true / false / undefined
+
+  // 协议层面就不可能 -> 真置灰。写了也没用：hysteria2 会走它自己的原生 QUIC，
+  // 浏览器根本不在路径上（实测过：代理能通，但那是原生 QUIC 通的）。
+  if (!mayProto) {
+    const why = (dialer.notes||[])[0] || '该协议不走浏览器转发（只对 vless 的 ws/xhttp 生效，且不支持 REALITY）';
+    return `<span class="tag" title="${ESC(why)}">— 不需要</span>`;
+  }
+
+  // 协议可能但实测失败 -> 给个可点的「重测」。
+  // 不能做成死灰：服务器那边的配置问题修好之后，用户得有办法恢复。
+  if (probe === false) {
+    const why = (dialer.notes||[]).join(' ') || '实测未通过';
+    return `<span class="tag warn" style="cursor:pointer" title="${ESC('实测未通过：' + why + ' — 点此重新探测（服务器修好后可恢复）')}"`
+         + ` onclick="reprobe('${ESC(n.file)}', this)">重测</span>`;
+  }
+  // 协议可能、还没测过
+  if ((probe === undefined || probe === null) && !can) {
+    const why = (dialer.notes||[]).join(' ') || '判定未通过';
+    return `<span class="tag warn" style="cursor:pointer" title="${ESC(why + ' — 点此实测一次')}"`
+         + ` onclick="reprobe('${ESC(n.file)}', this)">未实测</span>`;
+  }
+
+  // 可用：在 默认 / 浏览器 / 原生 之间切换
+  const ub = n.use_browser;
+  let label, cls, title;
+  if (ub === false)     { label = '原生 TLS';     cls = '';    title = '已强制不用浏览器，Xray 自己完成 TLS（点一下改为默认）'; }
+  else if (ub === true) { label = '浏览器';       cls = 'acc'; title = '已强制使用浏览器（点一下改为原生）'; }
+  else                  { label = '浏览器(默认)'; cls = 'acc'; title = '默认：协议支持就用浏览器（点一下改为原生 TLS）'; }
+  return `<span class="tag ${cls}" style="cursor:pointer" title="${ESC(title)}"`
+       + ` onclick="toggleBrowser('${ESC(n.file)}', this)">${ESC(label)}</span>`;
+}
+// 「普通连接」与「BD 连接」两个独立按钮 —— 这是同一个节点的两种用法：
+//   普通连接 = 用 Xray 自带 TLS（同时会把浏览器关掉，省下 Chromium 的显存/内存）
+//   BD 连接  = 用浏览器完成 TLS（真实浏览器指纹）
+// 当前节点上也各留一个**可点**的按钮，用来在两种用法之间切换 ——
+// 以前当前节点什么都不显示，用户就没有入口去切换，看起来像"关不掉"。
+function useButtons(n){
+  const c = n.compat || {};
+  const mayProto = !!c.protocol_may_dialer;      // 协议层面能否走浏览器
+  const probe = n.probe_ok;                       // true / false / undefined
+  const canBD = mayProto && probe !== false;      // 能用浏览器的前提：协议可能 + 实测没失败
+  const ub = n.use_browser;
+  const bdOn = canBD && ub !== false;             // 当前是否在用浏览器
+  const cur = !!n.current;
+
+  // 「普通连接」**永远**要有 —— 任何节点都能用 Xray 自带 TLS。
+  // 之前只在"能用浏览器"的分支里给这个按钮，导致不支持 BD 的节点完全没有入口切过去
+  // （用户反馈：其他节点连"普通连接"按钮都没有）。这是个实打实的疏漏。
+  let h = `<button class="sm ${(!bdOn && cur) ? 'pri' : ''}" `
+        + `onclick="useNodeAs('${ESC(n.file)}','normal', this)" `
+        + `title="用 Xray 自带 TLS（会关闭浏览器，释放内存）">普通连接</button>`;
+
+  if (!mayProto) {
+    // 协议层面就不可能走浏览器：标明原因即可，不再给 BD 按钮
+    const why = ((c.dialer||{}).notes||[])[0] || '该协议不走浏览器转发（只对 vless 的 ws/xhttp 生效）';
+    h += `<span class="tag" title="${ESC(why)}">仅原生</span>`;
+  } else if (probe === false) {
+    // 协议可能、实测失败：给「重测」，服务器修好后能恢复
+    h += `<span class="tag warn" style="cursor:pointer" `
+       + `title="${ESC('实测未通过，点此重新探测（服务器修好后可恢复）')}" `
+       + `onclick="reprobe('${ESC(n.file)}', this)">重测</span>`;
+  } else {
+    h += `<button class="sm ${(bdOn && cur) ? 'pri' : ''}" `
+       + `onclick="useNodeAs('${ESC(n.file)}','bd', this)" `
+       + `title="用浏览器完成 TLS（真实浏览器指纹）">BD 连接</button>`;
+  }
+  return h;
+}
+async function useNodeAs(file, mode, btn){
+  const label = (mode === 'bd')
+    ? '正在切到 BD 连接（启用浏览器）…'
+    : '正在切到普通连接（关闭浏览器）…';
+  await post('node_use_as', {ident:file, mode:mode}, label, btn);
+}
+async function reprobe(file, btn){
+  await post('node_probe', {ident:file}, '正在实测浏览器路径（约 30-60 秒）…', btn);
+}
+async function toggleBrowser(file, btn){
+  // 在 默认 -> 原生 -> 浏览器 -> 默认 之间循环
+  const row = (ST.nodes||[]).find(x => x.file === file) || {};
+  const cur = row.use_browser;
+  const next = (cur === null || cur === undefined) ? 'off' : (cur === false ? 'on' : 'auto');
+  const label = {off:'正在改为原生 TLS（重启 Xray）…', on:'正在改为浏览器 TLS（重启 Xray）…',
+                 auto:'正在改为默认…'}[next];
+  await post('node_browser', {ident:file, value:next}, label, btn);
+}
 function say(t, cls){ const m=$('msg'); m.textContent=t; m.className='on '+(cls||''); }
 function clearMsg(){ $('msg').className=''; }
 function out(t){ $('out-card').style.display='block'; $('out').textContent=t; }
@@ -780,22 +963,38 @@ async function load(){
 
   const svc = ST.services||{}, ports = ST.ports||{}, extra = ST.services_extra||{};
   const xrayOn = svc.xray && svc.xray.active;
-  const dialerOn = svc.dialer && svc.dialer.active;
   const chromOn = svc.chromium && svc.chromium.active;
+  const canBD = !!ST.can_use_dialer;
 
   $('s-xray').innerHTML = dot(xrayOn, cn(svc.xray ? svc.xray.state : 'unknown'));
-  $('s-mode').innerHTML = dialerOn ? '<span class="tag acc">Browser Dialer</span>'
-                                   : (xrayOn ? '<span class="tag ok">普通 Xray</span>' : '<span class="tag">已停止</span>');
+  // 状态栏要说清"这个节点实际走哪条路"，而不是笼统的 Running
+  // 连接模式也要说"当前实际走哪条路"。以前只看 can_use_dialer（协议能力），
+  // 于是用户主动选了「普通连接」之后，界面还在报红"需要浏览器 TLS，但 Chromium 已停" ——
+  // 明明能正常用，纯属误报，看着让人以为坏了。
+  // 现在优先用后端给的 mode_detail（把"在跑什么"和"走哪条路"合成一句话），
+  // 拿不到时退回本地判断。
+  const bdInUse = canBD && ST.use_browser !== false;
+  const detail = ST.mode_detail || '';
+  $('s-mode').innerHTML = !xrayOn
+    ? '<span class="tag">已停止</span>'
+    : (bdInUse && !chromOn
+        ? '<span class="tag bad">需要浏览器 TLS，但 Chromium 已停</span>'
+        : `<span class="tag ${bdInUse ? 'acc' : 'ok'}">${ESC(detail || (bdInUse ? '浏览器 TLS' : 'Xray 自带 TLS'))}</span>`);
   $('s-node').textContent = ST.node ? ST.node.name : '（未选择）';
   $('s-ip').textContent = ST.exit_ip || '—';
   if ($('s-ip2')) $('s-ip2').textContent = ST.exit_ip || '—';
   $('s-proxy').innerHTML = ST.proxy_ok ? dot(true,'正常') : dot(false,'未连通');
 
-  $('s-dialer').innerHTML = dot(dialerOn, dialerOn ? '正在运行' : '已停止');
+  const nodePath = !ST.node ? '（未选择节点）'
+    : (canBD ? (chromOn ? '经浏览器（Chromium 完成 TLS）' : '需要浏览器，但 Chromium 未运行')
+             : '经 Xray（自带 TLS，不需要浏览器）');
+  $('s-dialer').innerHTML = !ST.node ? ESC(nodePath)
+    : (canBD ? `<span class="tag ${chromOn?'acc':'bad'}">${ESC(nodePath)}</span>`
+             : `<span class="tag ok">${ESC(nodePath)}</span>`);
   $('s-chromium').innerHTML = dot(chromOn, chromOn ? `正在运行 (${ST.chromium_procs||0} 进程)` : '已停止');
   $('s-ws').textContent = ST.ws_connections ?? 0;
-  $('s-dport').textContent = `${ports.listen||''}:${ports.dialer||''}`;
   $('s-nport').innerHTML = `${ESC((ports.listen||'')+':'+(ports.normal||''))} ${ports.normal_up?'<span class="tag ok">监听中</span>':'<span class="tag bad">未监听</span>'}`;
+  if ($('s-hport')) $('s-hport').innerHTML = `${ESC((ports.listen||'')+':'+(ports.lan_http||''))} ${ports.lan_http_up?'<span class="tag ok">监听中</span>':'<span class="tag bad">未监听</span>'}`;
 
   // 主按钮：跟着 Xray 状态切换
   const bt = $('btn-toggle');
@@ -803,19 +1002,30 @@ async function load(){
   bt.className = xrayOn ? 'danger' : 'pri';
   bt.disabled = false;
 
-  // 模式按钮
-  $('m-normal').className = (!dialerOn && xrayOn) ? 'sel' : '';
-  $('m-dialer').className = dialerOn ? 'sel' : '';
-  // 只根据能力决定可用性；不要因为一次请求把它永久锁死
-  $('m-dialer').disabled = !ST.can_use_dialer || !xrayOn;
-  $('m-normal').disabled = !xrayOn;
+  // 运行时按钮：控制 Chromium 在不在线。
+  //
+  // 这里刻意**不**用"节点是否支持 BD"来禁用「停掉 Chromium」——
+  // 以前那样写，当前节点一旦支持 BD 这个按钮就永远点不动，用户以为坏了（实测反馈）。
+  // 现在的语义是：
+  //   启动 Chromium  -> 当前节点走浏览器（等价于点「BD 连接」）
+  //   停掉 Chromium  -> 先把当前节点切到普通连接（Xray 自带 TLS），再停浏览器
+  // 也就是说这两个按钮和操作列的两个按钮是**同一套动作**，不会再互相矛盾。
+  const nodeUsesBrowser = !!ST.can_use_dialer && ST.use_browser !== false;
+  $('m-normal').className = chromOn ? '' : 'sel';
+  $('m-dialer').className = chromOn ? 'sel' : '';
+  $('m-dialer').disabled = !xrayOn || chromOn;
+  $('m-normal').disabled = !xrayOn || !chromOn;
+  if ($('s-chromium-procs')) {
+    $('s-chromium-procs').textContent = chromOn
+      ? `${ST.chromium_procs || 0} 个进程（约 890MB）` : '未运行';
+  }
   $('hint-dialer').textContent = !ST.node
     ? '还没有节点。'
-    : (!ST.can_use_dialer
-        ? '当前节点不支持 Browser Dialer：' + (ST.dialer_reason || '')
-        : (dialerOn ? 'Browser Dialer 正在运行，关闭后 Chromium 会退出，Xray 继续运行。'
-                    : '点击启用：会启动 Browser Dialer 与 Chromium（按需启动，未使用时 Chromium 不常驻）。'));
-
+    : (nodeUsesBrowser
+        ? (chromOn
+            ? '当前节点由 Chromium 完成 TLS。点「停掉 Chromium」会先把它切到普通连接（Xray 自带 TLS）再关闭浏览器 —— 节点不会断，只是不再走浏览器。'
+            : '⚠ 当前节点设置为走浏览器，但 Chromium 没在运行 —— 点「启动 Chromium」恢复。')
+        : '当前节点走 Xray 自带 TLS，Chromium 关着即可（省约 890MB）。想改用浏览器指纹：在下面节点表点「BD 连接」。');
   // 接管模式：三选一，如实反映当前状态
   const tkl = !!ST.takeover_local, tkn = !!ST.takeover_lan;
   const cur = tkn ? 'lan' : (tkl ? 'local' : 'none');
@@ -829,7 +1039,7 @@ async function load(){
     `本机 <span class="mono">127.0.0.1:${pc.http}</span><br>` +
     `LAN HTTP <span class="mono">${L}:${pc.lan_http}</span><br>` +
     `LAN SOCKS <span class="mono">${L}:${pc.normal}</span><br>` +
-    `Browser Dialer <span class="mono">${L}:${pc.dialer}</span>`;
+    `<span class="hint">两个入口都是全部节点通用，服务器按节点自动决定要不要用浏览器。</span>`;
   $('hint-takeover').textContent = tkn
     ? '当前：局域网透明接管中。设备连上网络即可用，无需配置；关闭请点「不接管」。'
     : (tkl ? '当前：接管本机（docker / apt / curl 走代理）。'
@@ -839,8 +1049,7 @@ async function load(){
 
   // 端口设置表
   const PORT_ROWS = [
-    ['normal',  'LAN SOCKS5（普通模式）',   pc.normal],
-    ['dialer',  'LAN SOCKS5（Browser Dialer）', pc.dialer],
+    ['normal',  'LAN SOCKS5（全部节点）',   pc.normal],
     ['http',    '本机 HTTP 代理（docker 等）', pc.http],
     ['lan-http','局域网 HTTP 代理（WiFi）',  pc.lan_http],
     ['channel', 'Xray↔Chromium 内部通道',   pc.channel],
@@ -871,7 +1080,7 @@ async function load(){
       <td>${vtag(b,'dialer')}</td>
       <td class="mono" id="lat-${ESC(n.file)}" style="white-space:nowrap">${latText(n.file)}</td>
       <td style="text-align:right;white-space:nowrap">
-        ${n.current ? '' : `<button class="sm pri" onclick="useNode('${ESC(n.file)}', this)">普通连接</button>`}
+        ${useButtons(n)}
         <button class="sm" onclick="testLatency('${ESC(n.file)}', this)">测速</button>
         <button class="sm" onclick="checkNode('${ESC(n.file)}', this)">检查</button>
         ${n.current ? '' : `<button class="sm" onclick="rmNode('${ESC(n.file)}')">删除</button>`}
@@ -909,8 +1118,20 @@ async function toggleMain(){
   await post('service', {op: on?'stop':'start'}, on?'正在停止 Xray…':'正在启动 Xray…');
 }
 const svc = op => post('service', {op}, '正在执行…');
-const setMode = m => post('mode', {mode:m},
-  m==='browser_dialer' ? '正在启用 Browser Dialer（启动 Chromium，约需 15 秒）…' : '正在关闭 Browser Dialer…');
+async function setMode(m){
+  // 「停掉 Chromium」不能只是停进程：若当前节点设置为走浏览器，停掉会让它永久挂住
+  // （dialTask 没有超时）。所以先把当前节点切成普通连接，再停浏览器 —— 一步到位。
+  if (m === 'normal' && ST.node) {
+    return post('node_use_as', {ident: ST.node.file, mode: 'normal'},
+                '正在切到普通连接并关闭浏览器…');
+  }
+  if (m === 'browser_dialer' && ST.node && ST.can_use_dialer) {
+    return post('node_use_as', {ident: ST.node.file, mode: 'bd'},
+                '正在切到 BD 连接并启动浏览器…');
+  }
+  return post('mode', {mode:m},
+    m==='browser_dialer' ? '正在启动 Chromium（约需 15 秒）…' : '正在停掉 Chromium…');
+}
 const useNode = (f, btn) => post('node_use', {ident:f}, '正在切换节点…', btn);
 const rmNode = f => { if(confirm('确认删除该节点？')) post('node_remove', {ident:f}); };
 async function setTakeover(mode, btn){
@@ -931,7 +1152,7 @@ async function setPortOne(kind, btn){
   const el = document.getElementById('pk-'+kind);
   const v = (el && el.value || '').trim();
   if (!v) return say('请先在「'+kind+'」这一行填入新端口', 'err');
-  const warn = {channel:'内部通道改动会重启 Browser Dialer（若在运行）', panel:'面板端口改动后需用新地址访问'}[kind];
+  const warn = {channel:'内部通道改动会重启 Xray 与 Chromium', panel:'面板端口改动后需用新地址访问'}[kind];
   if (warn && !confirm(warn + '，确认继续？')) return;
   const j = await post('port_set', {kind, value:v}, `正在修改 ${kind} 端口…`, btn);
   if (j.ok && el) el.value = '';
@@ -942,7 +1163,7 @@ async function loadConn(btn){
   if (!j.ok) return;
   let d;
   try { d = JSON.parse(j.message); } catch (e) { return say('配置生成失败', 'err'); }
-  $('conn-yaml').textContent = d.yaml + d.yaml_dialer;
+  $('conn-yaml').textContent = d.yaml;
   $('conn-env').textContent = d.env_example;
   $('conn-note').textContent = d.local_note || '';
   $('tb-links').innerHTML = (d.links || []).map(l =>
