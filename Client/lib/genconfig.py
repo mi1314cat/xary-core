@@ -32,6 +32,7 @@ WS_ED_DEFAULT = 2048
 DIALER_TRANSPORTS = {"xhttp", "websocket"}
 
 
+
 def fail(msg: str) -> None:
     print(f"genconfig: {msg}", file=sys.stderr)
     sys.exit(2)
@@ -293,6 +294,25 @@ def build(node: dict, args) -> dict:
         "settings": {"address": "127.0.0.1"},
     })
 
+    outbounds = [
+        build_outbound(node, mode, args.mux),
+        {"tag": "direct", "protocol": "freedom", "settings": {"domainStrategy": "UseIPv4"}},
+        {"tag": "block", "protocol": "blackhole"},
+    ]
+
+    routing_rules = [
+        {"type": "field", "inboundTag": ["api-in"], "outboundTag": "api"},
+        # 绝不代理自己：节点域名/自身 IP 与私网直连（环路防护）。
+        # domain 与 ip 必须分成两条规则 —— Xray 的 domain 字段不认 IP 字面量。
+        # 私网归在 ip 规则里；没有 IP 需要豁免时，单独出一条 geoip:private。
+        *([{"type": "field", "outboundTag": "direct",
+            "domain": sorted(set(direct_domains))}] if direct_domains else []),
+        *([{"type": "field", "outboundTag": "direct",
+            "ip": sorted(set(direct_ips))}] if direct_ips
+          else [{"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]}]),
+        {"type": "field", "outboundTag": "proxy", "network": "tcp,udp"},
+    ]
+
     cfg = {
         "log": {
             "loglevel": args.loglevel,
@@ -307,26 +327,8 @@ def build(node: dict, args) -> dict:
                        "statsOutboundUplink": True, "statsOutboundDownlink": True},
         },
         "inbounds": inbounds,
-        "outbounds": [
-            build_outbound(node, mode, args.mux),
-            {"tag": "direct", "protocol": "freedom", "settings": {"domainStrategy": "UseIPv4"}},
-            {"tag": "block", "protocol": "blackhole"},
-        ],
-        "routing": {
-            "domainStrategy": "AsIs",
-            "rules": [
-                {"type": "field", "inboundTag": ["api-in"], "outboundTag": "api"},
-                # 绝不代理自己：节点域名/自身 IP 与私网直连（环路防护）。
-                # domain 与 ip 必须分成两条规则 —— Xray 的 domain 字段不认 IP 字面量。
-                # 私网归在 ip 规则里；没有 IP 需要豁免时，单独出一条 geoip:private。
-                *([{"type": "field", "outboundTag": "direct",
-                    "domain": sorted(set(direct_domains))}] if direct_domains else []),
-                *([{"type": "field", "outboundTag": "direct",
-                    "ip": sorted(set(direct_ips))}] if direct_ips
-                  else [{"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]}]),
-                {"type": "field", "outboundTag": "proxy", "network": "tcp,udp"},
-            ],
-        },
+        "outbounds": outbounds,
+        "routing": {"domainStrategy": "AsIs", "rules": routing_rules},
     }
     return cfg
 
