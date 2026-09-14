@@ -76,12 +76,16 @@ bash <(curl -Ls .../Client/l.sh) --vless "vless://..." --yes
 
 ---
 
-## 两个代理入口，二选一
+## 两个代理入口（都是全部节点通用）
 
-| 端口 | 模式 | 什么时候用 |
+| 端口 | 协议 | 什么时候用 |
 |---|---|---|
-| `1080` | 普通 Xray | 平时用这个 |
-| `1081` | Browser Dialer | 需要真实浏览器 TLS 指纹时（先 `xbd dialer on`） |
+| `1080` | SOCKS5 | 推荐。支持 UDP，Mihomo / 浏览器插件用它 |
+| `10809` | HTTP | 设备只支持 HTTP 代理时（WiFi 设置里那种） |
+| `10808` | HTTP（仅回环） | 本机进程：docker / apt / curl |
+
+**没有"Browser Dialer 专用端口"**。两个入口都由同一个 Xray 实例服务；某个节点要不要用
+浏览器来完成 TLS，由服务器按节点自动决定，你在客户端这边什么都不用改。
 
 局域网设备在 WiFi/系统设置里填 **`<服务器IP>` + 对应端口** 即可。
 
@@ -93,13 +97,21 @@ bash <(curl -Ls .../Client/l.sh) --vless "vless://..." --yes
 安装时会自动挑没被占用的端口。装完想换：`xbd port`（查看）→ `xbd port normal 2080`（修改）。
 冲突检查：`xbd ports check`，自动重分配：`xbd ports fix`。
 
-**Q: 关闭 Browser Dialer 会不会把 Xray 也停了？**
-不会。两者生命周期完全独立 —— 关闭 Browser Dialer 只停它自己和 Chromium，Xray 继续跑。
-未启用 Browser Dialer 时 Chromium 完全不运行（0 进程）。
+**Q: 停掉 Chromium 会不会把 Xray 也停了？**
+不会。`xbd dialer off` 只停 Chromium，Xray 与两个入口继续运行。
+唯一影响：**需要浏览器指纹的节点**（Browser Dialer 那栏显示"支持"的）会暂时拨号失败，
+其他节点完全不受影响。`xbd dialer on` 立刻恢复。
 
-**Q: 某个节点显示「Browser Dialer 不可用」？**
-正常。Browser Dialer 只支持 `VLESS + WebSocket/XHTTP + TLS`。该节点仍可用普通模式。
-如果切到这类节点时 Browser Dialer 正开着，会自动关闭它。
+**Q: 某个节点显示「Browser Dialer 不支持」？**
+正常。只有 `VLESS/Vmess + WebSocket/XHTTP + TLS`（非 REALITY）能交给浏览器。
+这类节点会走 Xray 自带 TLS，用同一个端口，不需要你做任何切换。
+
+**Q: 怎么确认这套"一个实例、两个端口"没被改坏？**
+```bash
+sudo bash /opt/xray-browser-dialer/tools/selftest-arch.sh
+```
+它会断言三件事：两个入口必须由**同一个** Xray 进程监听、两个入口出口必须一致、
+不需要浏览器的节点在 **Chromium 完全停掉**时仍能出网。
 
 **Q: hysteria2 节点连不上，报 legacy Common Name？**
 节点用的是自签证书。执行 `xbd cert <编号>` 取指纹固定即可（一条命令）。
