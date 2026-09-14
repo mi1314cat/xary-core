@@ -413,13 +413,22 @@ def want_browser_dialer(node: dict) -> bool:
 
     判定顺序：
       1. 协议层面必须可能（vless + ws/xhttp + 非 reality）
-      2. 节点自己的 use_browser：None=默认用，True=用，False=不用
+      2. 实测结论：tools/browserprobe.py 判过"浏览器路径不可用"的，一律不用。
+         这一条是**必需**的，不是保守：进程只要带着 XRAY_BROWSER_DIALER，
+         xhttp/websocket 出站就全部交给浏览器，而 dialTask() 阻塞在 <-conns 上
+         **没有超时** —— 实测不通的节点会永久挂住（curl 一直等到超时）。
+         面板 UI 早就是这条规则（mayProto && probe !== false，实测失败只给「普通连接」），
+         这里必须一致，否则就是"界面显示仅原生、进程却在走浏览器"。
+      3. 节点自己的 use_browser：None=默认用，True=用，False=不用
     """
     proto = (node.get("protocol") or "").lower()
     transport = canon_transport(node.get("transport") or "")
     security = (node.get("security") or "none").lower()
     if proto != "vless" or transport not in DIALER_TRANSPORTS or security == "reality":
         return False
+    probe = node.get("browser_probe") or {}
+    if probe.get("ok") is False:
+        return False      # 实测不可用 → 只能原生，否则节点永久挂住
     return node.get("use_browser", None) is not False
 
 
