@@ -796,20 +796,32 @@ cmd_start() {
   # Xray 重启换了 CSRF token，浏览器必须跟着重启（旧 WS 会挂着但已失效）
   unit_active "$XBD_U_CHROMIUM" && systemctl restart "$XBD_U_CHROMIUM" 2>/dev/null || true
 
-  # Chromium 是 Browser Dialer 的运行时依赖，必须一起 enable：
-  # 唯一实例始终带 XRAY_BROWSER_DIALER，重启机器后没有它，依赖浏览器拨号的节点会全部失败。
-  step "启动 Browser Dialer 运行时（Chromium）"
-  systemctl enable --now "$XBD_U_CHROMIUM" >/dev/null 2>&1 || systemctl start "$XBD_U_CHROMIUM"
-  systemctl enable --now "$XBD_U_TIMER" >/dev/null 2>&1 || true
-  local i
-  for i in 1 2 3 4 5 6 7 8 9 10; do
-    unit_active "$XBD_U_CHROMIUM" && [ "$(conn_count '127.0.0.1:18081')" -gt 0 ] && break
-    sleep 1
-  done
-  if unit_active "$XBD_U_CHROMIUM"; then
-    ok "$XBD_U_CHROMIUM: RUNNING（$XBD_U_TIMER 负责自愈）"
+  # Chromium 只在**当前节点需要浏览器**时才拉起来。
+  # 旧的"常备"模型已经废弃：它无条件启动 Chromium，节点换到 hysteria 这类不用
+  # 浏览器的协议后，这个进程会一直占着约 600MB（这台机器总共 1.8GB）。
+  # 判据与 run-xray.sh / 换节点 / 健康检查完全一致：都用 compat.py want-bd。
+  if _xbd_node_needs_dialer; then
+    step "启动 Browser Dialer 运行时（Chromium）"
+    systemctl enable --now "$XBD_U_CHROMIUM" >/dev/null 2>&1 || systemctl start "$XBD_U_CHROMIUM"
+    systemctl enable --now "$XBD_U_TIMER" >/dev/null 2>&1 || true
+    local i
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+      unit_active "$XBD_U_CHROMIUM" && [ "$(conn_count '127.0.0.1:18081')" -gt 0 ] && break
+      sleep 1
+    done
+    if unit_active "$XBD_U_CHROMIUM"; then
+      ok "$XBD_U_CHROMIUM: RUNNING（$XBD_U_TIMER 负责自愈）"
+    else
+      warn "$XBD_U_CHROMIUM 未启动 —— 依赖浏览器拨号的节点会失败（xbd dialer on 可重试）"
+    fi
   else
-    warn "$XBD_U_CHROMIUM 未启动 —— 依赖浏览器拨号的节点会失败（xbd dialer on 可重试）"
+    step "Browser Dialer 运行时（Chromium）"
+    if unit_active "$XBD_U_CHROMIUM"; then
+      warn "当前节点不用浏览器，停掉 Chromium 释放内存"
+      xbd_dialer_off || true
+    else
+      ok "当前节点走 Xray 自带 TLS，Chromium 无需运行"
+    fi
   fi
 
   step "启动面板"
