@@ -164,6 +164,18 @@ QUIC/HTTP3 时不会产生该字段，会得出"ECH 没生效"的**假阴性**�
 | `can_use_xray` | 配置层面 Xray 能起来 | 能否使用该节点 |
 | `protocol_may_dialer` | 协议/传输层面**是否可能**走浏览器 | **决定 Chromium 能否停**（停了会挂住） |
 | `can_use_dialer` | 综合判定 + **实测结果** | 界面显示"能不能用浏览器" |
+| `want_browser_dialer` | 这个节点**要不要**带 `XRAY_BROWSER_DIALER` 启动 | `run-xray.sh` / `health-check.sh` / 换节点，**唯一**判定入口 |
+
+`want ⇒ can_use_dialer` 是必须成立的不变式，原因不是"好看"：进程只要带着
+`XRAY_BROWSER_DIALER`，该节点的 xhttp/websocket 出站就**全部**交给浏览器，而
+`transport/internet/browser_dialer/dialer.go` 的 `dialTask()` 阻塞在 `<-conns` 上
+**没有超时**。所以实测判过"不可用"的节点若仍然带着这个环境变量，节点会永久挂住
+（表现为请求一直等到超时），而不是退回原生 TLS。
+
+> 真踩过：`node-001`（vless+ws）实测 rc=28 不可用，面板因此只给「普通连接」，
+> 但 `want-bd` 仍回 `yes` —— 界面说仅原生、进程却在走浏览器，切过去就挂死。
+> 现在 `want_browser_dialer()` 与面板 UI 用同一条规则（实测失败即原生），
+> `tools/selftest-compat.py` 钉住了这条不变式。
 
 `tools/browserprobe.py` 做真实探测（临时起 Xray + Chromium 跑一次请求，不动生产服务），
 结果写进节点文件；判定读它。**判不出来就说判不出来，绝不假装支持。**
