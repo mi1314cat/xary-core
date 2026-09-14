@@ -44,6 +44,12 @@ DEFAULT_NODE = {
     "path": "",
     "host": "",
     "mode": "",                # xhttp mode
+    # WebSocket early data 长度。0 = 不启用。
+    # 官方 browser_dialer 文档推荐 ?ed=2048；实测定量结论：
+    #   浏览器路径下若没有 ed，内嵌页面会读 task.extra.protocol 抛 TypeError（extra 是空的），
+    #   于是 ws 节点在浏览器路径下**必然失败**；加上 ed 后立刻可用。
+    #   原生路径下有没有 ed 都能用，所以加上不会造成回归。
+    "ws_ed": 0,
     "extra": "",               # xhttp extra
     "service_name": "",        # grpc
     "header_type": "",         # tcp 伪装
@@ -57,6 +63,12 @@ DEFAULT_NODE = {
     "source": "",              # 来源格式，便于排查
     "raw_params": {},          # 原始 query，一个都不丢
     "raw": "",                 # 原始字符串/片段
+    # 这个节点是否用浏览器完成 TLS。这是**每个节点各自的属性**，不是全局模式：
+    #     None  = 默认（协议支持就用浏览器，不支持就用 Xray 自带 TLS）
+    #     True  = 强制用浏览器
+    #     False = 强制不用（即使协议支持）
+    # 为什么不做成全局开关：全局关掉会让**所有**依赖浏览器的节点一起失效（实测踩过）。
+    "use_browser": None,
 }
 
 _TRANSPORT_ALIASES = {
@@ -371,6 +383,43 @@ def parse_mihomo_yaml(text: str) -> dict:
     return _yaml_entry_to_node(entry)
 
 
+def _split_ws_path(path: str):
+    """把 '/path?ed=2048' 拆成 ('/path', 2048)。
+
+    为什么必须拆开：Xray 的浏览器转发会把整串当 URL 路径用，带着 ?ed= 会让
+    服务端路径匹配失败（实测：path 含 ?ed=2048 时连接建立不起来）。
+    early data 应该单独表达，而不是塞进路径。
+    """
+    p = str(path or "")
+    if "?" not in p:
+        return p, 0
+    base, _, q = p.partition("?")
+    ed = 0
+    for kv in q.split("&"):
+        k, _, v = kv.partition("=")
+        if k.strip().lower() == "ed":
+            try:
+                ed = int(v.strip() or 0)
+            except ValueError:
+                ed = 0
+    return (base or "/"), ed
+
+
+def _extract_ws_ed(ws: dict, path: str) -> int:
+    """early data 长度：优先显式字段，其次 path 里的 ?ed=。"""
+    for k in ("ed", "earlyData", "early_data", "edMax"):
+        v = ws.get(k)
+        if v in (None, "", 0, "0"):
+            continue
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            return n
+    return _split_ws_path(path)[1]
+
+
 def _yaml_entry_to_node(entry: dict) -> dict:
     t = str(entry.get("type", "")).lower()
     proto = {"ss": "shadowsocks"}.get(t, t)
@@ -382,6 +431,12 @@ def _yaml_entry_to_node(entry: dict) -> dict:
     n["uuid"] = str(entry.get("uuid", ""))
     n["password"] = str(entry.get("password", ""))
     n["method"] = str(entry.get("cipher", ""))
+    # vless 的 encryption 必须原样保留！
+    # Xray 25.x 起 vless 支持后量子加密（mlkem768x25519plus.*），服务端开了之后
+    # 客户端写 "none" 会直接连不上。曾经这里漏读该字段，于是所有 mlkem 节点
+    # 都被静默降级成 none —— 表现为"原生 TLS 连不上"，被误判成服务端问题。
+    if "encryption" in entry and entry.get("encryption") not in (None, ""):
+        n["encryption"] = str(entry["encryption"])
     n["sni"] = str(entry.get("servername") or entry.get("sni") or "")
     n["flow"] = str(entry.get("flow", ""))
     n["fingerprint"] = str(entry.get("client-fingerprint", ""))
@@ -415,6 +470,11 @@ def _yaml_entry_to_node(entry: dict) -> dict:
         n["path"] = str(ws.get("path") or "")
         headers = ws.get("headers") or {}
         n["host"] = str(headers.get("Host") or headers.get("host") or "")
+        # early data：只记录，**不把 ?ed= 从 path 里拆掉**。
+        # 实测（26.3.27）：ed 只能通过 URL 查询串生效，写 wsSettings.ed 等字段一律无效；
+        # 而浏览器转发要靠它才会在任务里带上 extra.protocol，缺了页面就抛 TypeError。
+        # 拆出去看着更"干净"，实际上会让 ws 节点在浏览器路径下必然失败。
+        n["ws_ed"] = _extract_ws_ed(ws, n["path"])
     if xh:
         n["path"] = str(xh.get("path") or n["path"])
         n["mode"] = str(xh.get("mode") or "")
