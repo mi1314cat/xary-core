@@ -63,11 +63,11 @@ cmd_install() {
 
   step "安装 systemd 单元"
   local u
-  for u in "$XBD_U_XRAY" "$XBD_U_DIALER" "$XBD_U_CHROMIUM" "$XBD_U_PANEL" "$XBD_U_HEALTH" "$XBD_U_TIMER"; do
+  for u in "$XBD_U_XRAY" "$XBD_U_CHROMIUM" "$XBD_U_PANEL" "$XBD_U_HEALTH" "$XBD_U_TIMER"; do
     install -m 0644 "$XBD_SERVICE/$u" "/etc/systemd/system/$u"
   done
   systemctl daemon-reload
-  ok "已安装 6 个单元（xray-client / xray-dialer / chromium + panel / health / timer）"
+  ok "已安装 5 个单元（xray-client / chromium + panel / health / timer）"
 
   # 清理 v1/v2 遗留单元，避免与新架构冲突
   local old
@@ -112,9 +112,9 @@ xbd_write_default_configs() {
       printf '%s' "$alloc" | python3 -c '
 import sys, json
 d = json.load(sys.stdin)
-defaults = {"PORT_NORMAL":1080,"PORT_DIALER":1081,"PORT_HTTP":10808,
+defaults = {"PORT_NORMAL":1080,"PORT_HTTP":10808,
             "PORT_LAN_HTTP":10809,"DIALER_ADDR":18081,"PANEL_PORT":18090,"API_PORT":18085}
-labels = {"PORT_NORMAL":"LAN SOCKS5（普通）","PORT_DIALER":"LAN SOCKS5（Dialer）",
+labels = {"PORT_NORMAL":"LAN SOCKS5",
           "PORT_HTTP":"本机 HTTP 代理","PORT_LAN_HTTP":"局域网 HTTP 代理",
           "DIALER_ADDR":"内部通道","PANEL_PORT":"面板","API_PORT":"统计 API"}
 for k, label in labels.items():
@@ -133,21 +133,23 @@ for k, label in labels.items():
 
   [ -f "$XBD_CONF/ports.env" ] || {
     # 用分配结果写配置
-    local _lan _pn _pd _ph _plh _ch _pp _api
-    _lan=$(printf '%s' "${_XBD_ALLOC:-{}}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("listen_addr",""))' 2>/dev/null)
-    _pn=$(printf '%s' "${_XBD_ALLOC:-{}}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("PORT_NORMAL",1080))' 2>/dev/null)
-    _pd=$(printf '%s' "${_XBD_ALLOC:-{}}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("PORT_DIALER",1081))' 2>/dev/null)
-    _ph=$(printf '%s' "${_XBD_ALLOC:-{}}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("PORT_HTTP",10808))' 2>/dev/null)
-    _plh=$(printf '%s' "${_XBD_ALLOC:-{}}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("PORT_LAN_HTTP",10809))' 2>/dev/null)
-    _ch=$(printf '%s' "${_XBD_ALLOC:-{}}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("DIALER_ADDR",18081))' 2>/dev/null)
-    _pp=$(printf '%s' "${_XBD_ALLOC:-{}}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("PANEL_PORT",18090))' 2>/dev/null)
-    _api=$(printf '%s' "${_XBD_ALLOC:-{}}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("API_PORT",18085))' 2>/dev/null)
+    # 显式兜底成 {}：不能写 ${VAR:-{}} —— 默认值里的 } 会被当成展开的结束符，
+    # 变量已设置时会多吐一个 }，JSON 解析失败后所有端口静默变空（实测踩过）。
+    [ -n "${_XBD_ALLOC:-}" ] || _XBD_ALLOC='{}'
+
+    local _lan _pn _ph _plh _ch _pp _api
+    _lan=$(printf '%s' "${_XBD_ALLOC}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("listen_addr",""))' 2>/dev/null)
+    _pn=$(printf '%s' "${_XBD_ALLOC}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("PORT_NORMAL",1080))' 2>/dev/null)
+    _ph=$(printf '%s' "${_XBD_ALLOC}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("PORT_HTTP",10808))' 2>/dev/null)
+    _plh=$(printf '%s' "${_XBD_ALLOC}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("PORT_LAN_HTTP",10809))' 2>/dev/null)
+    _ch=$(printf '%s' "${_XBD_ALLOC}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("DIALER_ADDR",18081))' 2>/dev/null)
+    _pp=$(printf '%s' "${_XBD_ALLOC}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("PANEL_PORT",18090))' 2>/dev/null)
+    _api=$(printf '%s' "${_XBD_ALLOC}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("API_PORT",18085))' 2>/dev/null)
     [ -n "$_lan" ] || _lan=$(detect_lan_ip)
     cat > "$XBD_CONF/ports.env" <<EOF
 # 端口分配。改完执行: xbd port <类型> <值> 或直接改这里再 xbd apply && xbd restart
 # 自动分配器会避开已被占用的端口；重新分配可执行 xbd ports fix
 PORT_NORMAL=${_pn:-1080}
-PORT_DIALER=${_pd:-1081}
 LISTEN_ADDR=${_lan}
 DIALER_ADDR=127.0.0.1:${_ch:-18081}
 PORT_HTTP=${_ph:-10808}
@@ -158,11 +160,9 @@ EOF
   }
 
   [ -f "$XBD_CONF/ports.env" ] || cat > "$XBD_CONF/ports.env" <<EOF
-# 端口规划。改完执行: xbd apply && xbd restart
-# 常驻 Xray（普通代理模式）→ 局域网设备连这个
+# 端口规划。改完执行: xbd restart
+# 唯一 Xray 实例的 SOCKS5 入口 → 局域网设备 / Mihomo 连这个
 PORT_NORMAL=1080
-# Browser Dialer 模式 → 按需启用时使用
-PORT_DIALER=1081
 # 只绑 LAN 地址，绝不 0.0.0.0（本机 ufw 未启用，绑 0.0.0.0 等于暴露公网）
 LISTEN_ADDR=$(detect_lan_ip)
 # Xray ↔ Chromium 的内部通道，仅回环
@@ -175,14 +175,8 @@ PORT_HTTP=10808
 PORT_LAN_HTTP=10809
 EOF
 
-  [ -f "$XBD_CONF/dialer.env" ] || cat > "$XBD_CONF/dialer.env" <<'EOF'
-# Browser Dialer 启用标志：让 Xray 监听该地址、播放内嵌页面、接受浏览器回连。
-# 这是 Xray 内建功能，没有独立的 dialer 守护进程。
-XRAY_BROWSER_DIALER=127.0.0.1:18081
-EOF
-
   [ -f "$XBD_CONF/chromium.env" ] || cat > "$XBD_CONF/chromium.env" <<'EOF'
-# Chromium 运行参数（仅 Browser Dialer 模式运行时使用）
+# Chromium 运行参数（Browser Dialer 的运行时依赖）
 BROWSER_DIALER_ADDR=127.0.0.1:18081
 # 本机以 root 运行，Chromium 在 root 下必须 --no-sandbox
 CHROMIUM_EXTRA_ARGS="--no-sandbox"
@@ -244,7 +238,7 @@ menu_browser_ensure() {
     ok "已就绪: $BROWSER — $(browser_version)"
     return 0
   fi
-  warn "未找到浏览器，Browser Dialer 将不可用（普通模式不受影响）"
+  warn "未找到浏览器：依赖浏览器拨号的节点将不可用，其余节点不受影响"
   return 1
 }
 
@@ -286,18 +280,27 @@ cmd_node() {
     latency|ping|delay) cmd_node_latency "$@" ;;
     list|ls)     cmd_node_list "$@" ;;
     use|select)  cmd_node_use "$@" ;;
+    use-as)      cmd_node_use "$@" ;;   # 刻意不 shift：cmd_node 已经 shift 过一次
     remove|rm)   cmd_node_remove "$@" ;;
     check)       cmd_node_check "$@" ;;
-    latency|ping|delay) cmd_node_latency "$@" ;;
+    browser|bd)  cmd_node_browser "$@" ;;
+    probe|test)  cmd_node_probe "$@" ;;
     sub|subscription) cmd_node_subscription "$@" ;;
     import-file) cmd_node_import_file "$@" ;;
-    -h|--help|"") info "用法: xbd node <add|list|use|remove|check|sub|import-file>" ;;
+    -h|--help|"") info "用法: xbd node <add|list|use|remove|check|browser|probe|sub|import-file>" ;;
     *) die "未知子命令: $sub" ;;
   esac
 }
 
 cmd_node_add() {
   local raw="${1:-}"
+  # --keep-unsupported：连 Xray 内核不支持的协议也存下来（仅存档，不参与选节点）
+  local keep_unsup=0
+  case "$raw" in
+    --keep-unsupported) keep_unsup=1; raw="${2:-}" ;;
+  esac
+  if printf '%s' "${*:-}" | grep -q -- '--keep-unsupported'; then keep_unsup=1; raw="${raw/--keep-unsupported/}" ; fi
+  if [ "$keep_unsup" = "1" ]; then export XBD_KEEP_UNSUPPORTED=1; fi
   if [ -z "$raw" ] && [ ! -t 0 ]; then raw=$(cat); fi
   if [ -z "$raw" ]; then
     printf '请输入节点（URI / Xray JSON / Mihomo YAML，可多行、可多个）: '
@@ -328,6 +331,13 @@ cmd_node_add() {
     info "检测到 $total 个节点，逐个导入："
   fi
 
+  # 导入前先分流：Batch 里可能混着 Xray 内核根本不支持的协议（tuic / ssh / 别的内核），
+  # 以及重复条目（订阅里很常见）。以前会一股脑儿落盘，列表被灌满、还得自己一个个看。
+  # 现在默认：不支持的跳过、重复的跳过，最后汇总一行说明跳了什么。
+  local KEEP_UNSUP=0
+  [ "${XBD_KEEP_UNSUPPORTED:-0}" = "1" ] && KEEP_UNSUP=1
+  python3 "$XBD_LIBDIR/nodefilter.py" "$tmp" "$XBD_LIBDIR" "$KEEP_UNSUP" "$XBD_NODES" > /tmp/.xbd_kept.jsonl 2>/tmp/.xbd_skipped.err
+
   local count=0 idx=0
   while IFS= read -r node_json; do
     [ -z "$node_json" ] && continue
@@ -337,11 +347,21 @@ cmd_node_add() {
       printf '\n  [%d/%d] ' "$idx" "$total"
     fi
     cmd_node_import_file /tmp/.xbd_one.json && count=$((count+1))
-  done < <(python3 -c '
-import json, sys
-for n in json.load(open(sys.argv[1])):
-    print(json.dumps(n, ensure_ascii=False))
-' "$tmp")
+  done < /tmp/.xbd_kept.jsonl
+
+  # 汇总跳过项
+  local nskip
+  nskip=$(python3 -c 'import json;print(len(json.load(open("/tmp/.xbd_skipped.json"))))' 2>/dev/null || echo 0)
+  if [ "${nskip:-0}" -gt 0 ]; then
+    warn "已跳过 $nskip 个节点："
+    python3 -c '
+import json
+for name, why in json.load(open("/tmp/.xbd_skipped.json")):
+    print(f"    · {str(name)[:34]:36s} {why}")
+' 2>/dev/null || true
+    info "  （想保留这些节点存档：加 --keep-unsupported）"
+  fi
+  rm -f /tmp/.xbd_kept.jsonl /tmp/.xbd_skipped.json /tmp/.xbd_skipped.txt
 
   rm -f "$tmp" /tmp/.xbd_one.json /tmp/.xbd_multi_err
   [ "$count" -gt 0 ] || die "没有成功导入任何节点"
@@ -373,20 +393,8 @@ print(s[:40] or "node")' "$tmp")
   local caps
   # 注意：compat.py 在"两种模式都不可用"时退出码为 1（这是有效结论，不是失败），
   # 所以这里不能写 || echo '{}' —— 那样会把结论丢掉。
-  caps=$(python3 "$XBD_LIBDIR/compat.py" json "$dest" 2>/dev/null)
-  [ -n "$caps" ] || caps='{}'
-  case "$caps" in \{*) : ;; *) caps='{}' ;; esac
-  python3 - "$dest" "$caps" <<'PY'
-import json, sys
-p, caps = sys.argv[1], sys.argv[2]
-d = json.load(open(p))
-try:
-    d["_compat"] = json.loads(caps)
-except ValueError:
-    d["_compat"] = {}
-json.dump(d, open(p, "w"), ensure_ascii=False, indent=2)
-PY
-
+  # 有意**不**把判定结果写进节点文件 —— 那是导入瞬间的快照，会过期。
+  # 判定一律实时算（nodelist.py / state.py 都如此），避免"显示与实际能力脱节"。
   print_node_card "$dest"
   # 首个节点自动选中
   if [ ! -e "$XBD_NODES/current" ]; then
@@ -397,10 +405,18 @@ PY
 }
 
 print_node_card() {  # print_node_card <node.json>
-  python3 - "$1" <<'PY'
-import json, sys
+  python3 - "$1" "$XBD_LIBDIR" <<'PY'
+import importlib.util, json, os, sys
 d = json.load(open(sys.argv[1]))
-c = d.get("_compat") or {}
+# 现场判定，不读文件里的 _compat 缓存（会过期）
+_c = {}
+try:
+    spec = importlib.util.spec_from_file_location("_c", os.path.join(sys.argv[2], "compat.py"))
+    _m = importlib.util.module_from_spec(spec); spec.loader.exec_module(_m)
+    _c = _m.check_all(d)
+except Exception:
+    pass
+c = _c
 x = (c.get("xray") or {}).get("overall", "UNKNOWN")
 b = (c.get("dialer") or {}).get("overall", "UNKNOWN")
 tagmap = {"SUPPORTED": "✓ 支持", "SUPPORTED_WITH_WARNING": "⚠ 支持（有注意项）",
@@ -462,8 +478,8 @@ cmd_node_list() {
 }
 
 cmd_node_use() {
-  local t="${1:-}"
-  [ -n "$t" ] || { cmd_node_list; info ""; info "用法: xbd node use <编号|文件名>"; return 0; }
+  local t="${1:-}" how="${2:-}"
+  [ -n "$t" ] || { cmd_node_list; info ""; info "用法: xbd node use <编号|文件名> [bd|normal]"; return 0; }
   local path
   if [[ "$t" =~ ^[0-9]+$ ]]; then
     path=$(ls -1 "$XBD_NODES"/node-*.json 2>/dev/null | sed -n "${t}p")
@@ -477,15 +493,193 @@ cmd_node_use() {
   ok "当前节点 → $(basename "$path")"
   print_node_card "$path"
 
-  # 新节点若不支持 Browser Dialer，而 dialer 还在跑，必须收敛掉
-  # （否则会出现"界面 Running、代理已死"的静默失效）
-  local new_can
-  new_can=$(python3 "$XBD_LIBDIR/compat.py" json "$path" 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("can_use_dialer"))' 2>/dev/null || echo False)
-  if [ "$new_can" != "True" ] && unit_active "$XBD_U_DIALER"; then
-    warn "新节点不支持 Browser Dialer，正在关闭 dialer"
-    xbd_dialer_off
+  # 明确指定用法时（面板的「普通连接」/「BD 连接」按钮走这里），把选择写进节点文件。
+  # 这样"点按钮"就是用户意图的完整表达，不需要他再去理解环境变量那一层。
+  case "$how" in
+    bd|browser)   _xbd_set_node_browser "$path" true  ;;
+    normal|native) _xbd_set_node_browser "$path" false ;;
+    "") : ;;
+    *) die "未知用法: $how（可选 bd / normal）" ;;
+  esac
+
+  # 按**新节点自己**的实际情况让 Chromium 状态跟上。
+  #
+  # ⚠ 判据必须与 run-xray.sh 完全一致（都用 compat.py want-bd）：
+  #   want = 该节点**会不会**用浏览器（含用户的 use_browser 选择）
+  # 只有 want 为真、但进程还没带 XRAY_BROWSER_DIALER 时，才需要重启一次 ——
+  # 因为"带不带这个环境变量"是进程启动时决定的。
+  # 以前这里用"协议层面是否可能"来判断要不要保留 Chromium，结果用户点了
+  # 「普通连接」（明确要原生）也被拒绝关闭 —— 那是把保护做成了妨碍。
+  local want=no
+  _xbd_node_needs_dialer && want=yes
+
+  if [ "$want" = "yes" ]; then
+    if ! unit_active "$XBD_U_CHROMIUM"; then
+      warn "该节点使用浏览器完成 TLS，正在启动 Chromium"
+      xbd_dialer_on || warn "自动启动失败，可手动执行: xbd dialer on"
+    fi
+  else
+    if unit_active "$XBD_U_CHROMIUM"; then
+      warn "该节点不用浏览器，正在停掉 Chromium 释放内存"
+      xbd_dialer_off || true
+    fi
   fi
+
   info "执行 xbd apply && xbd restart 生效"
+  # ⚠ 关键：让正在跑的 Xray 与"这个节点该不该用浏览器"保持一致。
+  #
+  # 为什么非做不可：是否带 XRAY_BROWSER_DIALER 是**进程启动时**决定的。
+  # 节点文件改了而进程没变，就会出现"进程还带着 BD，但 Chromium 已经停掉"——
+  # 而 dialTask() 是 `conn = <-conns`，**没有超时**，该节点于是**永久挂住**，
+  # 表现为"关了浏览器之后这个节点就没网了"（实测踩过）。
+  # 所以这里主动比对并重启：进程实际状态 != 期望状态 就重启一次。
+  if unit_active "$XBD_U_XRAY"; then
+    _xbd_sync_xray_with_node || warn "Xray 重启失败，请手动执行: xbd restart"
+  fi
+}
+
+# 每个节点自己的"是否用浏览器完成 TLS"开关。
+# 为什么不放在全局：全局一关，所有依赖浏览器的节点一起失效（实测踩过）；
+# 而用户往往只是想给某一个节点省下那 ~890MB 内存。
+cmd_node_browser() {
+  local t="${1:-}" v="${2:-}"
+  [ -n "$t" ] || die "用法: xbd node browser <编号|文件名> <on|off|auto>"
+  local path
+  if [[ "$t" =~ ^[0-9]+$ ]]; then
+    path=$(ls -1 "$XBD_NODES"/node-*.json 2>/dev/null | sed -n "${t}p")
+    [ -n "$path" ] || die "没有编号 $t 的节点"
+  else
+    path="$XBD_NODES/$t"
+    [ -e "$path" ] || path=$(ls -1 "$XBD_NODES"/*"$t"* 2>/dev/null | head -1)
+    [ -e "${path:-}" ] || die "找不到节点: $t"
+  fi
+  [ -n "$v" ] || die "用法: xbd node browser <编号|文件名> <on|off|auto>"
+
+  # 协议不支持时不允许打开 —— 置灰的后端对应物，别让界面骗人
+  local can
+  can=$(python3 "$XBD_LIBDIR/compat.py" json "$path" 2>/dev/null \
+        | python3 -c 'import sys,json;print(json.load(sys.stdin).get("can_use_dialer"))' 2>/dev/null || echo False)
+
+  # 这里**允许**对任何节点关闭（包括 xhttp/websocket）。
+  # 曾经禁止过，理由是"只要 XRAY_BROWSER_DIALER 在线，xhttp/ws 出站就会被强制接管，
+  # 关掉会让节点不可用"—— 那个推理没错，但解决方式错了：
+  # 正确的做法是关闭时**同时让这个 Xray 进程不再声明该能力**（见 scripts/run-xray.sh，
+  # 它按当前节点的开关决定带不带 XRAY_BROWSER_DIALER）。
+  # 这样关掉之后节点自动走原生 TLS，既省下 Chromium 的内存，也不需要用户理解这些。
+  # 之前的做法等于"因为实现有缺陷，就不让用户关"。
+  if [ "$can" = "True" ] && [ "$v" = "off" ]; then
+    info "该节点将改用 Xray 自带 TLS（不影响可用性，只是不再经过浏览器）"
+  fi
+
+  if [ "$can" != "True" ] && [ "$v" != "off" ] && [ "$v" != "auto" ]; then
+    bad "该节点的协议不支持浏览器拨号（只有 xhttp/websocket 且非 REALITY 可以）"
+    info "它仍然可以正常使用 Xray 自带 TLS：同一个入口，无需任何设置"
+    return 1
+  fi
+
+  case "$v" in
+    on)   _xbd_set_node_browser "$path" true  ;;
+    off)  _xbd_set_node_browser "$path" false ;;
+    auto) _xbd_set_node_browser "$path" null  ;;
+    *) die "未知取值: $v（可选 on/off/auto）" ;;
+  esac
+
+  # 改的就是当前节点 -> 立刻生效。
+  # ⚠ 必须重启 Xray：是否带 XRAY_BROWSER_DIALER 是**进程启动时**决定的，
+  # 光改节点文件不重启，进程仍会走旧的那条路（这是"关不掉"的第二个原因）。
+  if [ "$(readlink -f "$XBD_NODES/current" 2>/dev/null)" = "$(readlink -f "$path")" ]; then
+    local want="no"
+    _xbd_node_needs_dialer && want="yes"
+    info "正在重启 Xray 让设置生效…"
+    systemctl restart "$XBD_U_XRAY" 2>/dev/null || true
+    sleep 4
+    unit_active "$XBD_U_XRAY" || { bad "Xray 重启失败"; journalctl -u "$XBD_U_XRAY" -n 10 --no-pager; return 1; }
+    if [ "$want" = "yes" ]; then
+      unit_active "$XBD_U_CHROMIUM" || { info "该节点要用浏览器，正在启动 Chromium"; xbd_dialer_on || true; }
+      ok "已生效：该节点走浏览器 TLS"
+    else
+      unit_active "$XBD_U_CHROMIUM" && { info "该节点不用浏览器了，正在停掉 Chromium 释放内存"; xbd_dialer_off || true; }
+      ok "已生效：该节点走 Xray 自带 TLS"
+    fi
+  else
+    ok "已保存。切到该节点时按此生效"
+  fi
+}
+
+_xbd_set_node_browser() {
+  python3 - "$1" "$2" <<'PYEOF'
+import json, sys
+path, val = sys.argv[1], sys.argv[2]
+d = json.load(open(path))
+d["use_browser"] = None if val == "null" else (val == "true")
+json.dump(d, open(path, "w"), ensure_ascii=False, indent=2)
+PYEOF
+}
+
+# 真实探测：这个节点走浏览器路径到底通不通。
+# 能力判定只能验证"配置合法"，合法不等于能通（实测：同一套 ws 配置，
+# 有的服务器可用、有的不行）。所以给一个能跑的探测，结果写回节点文件。
+cmd_node_probe() {
+  local t="${1:-}" all=0
+  [ "$t" = "--all" ] && { all=1; t=""; }
+  need_root
+  local targets=()
+  if [ "$all" = 1 ]; then
+    local f
+    for f in "$XBD_NODES"/node-*.json; do [ -e "$f" ] && targets+=("$f"); done
+  else
+    [ -n "$t" ] || { cmd_node_list; info ""; info "用法: xbd node probe <编号|文件名> | xbd node probe --all"; return 0; }
+    local path
+    if [[ "$t" =~ ^[0-9]+$ ]]; then
+      path=$(ls -1 "$XBD_NODES"/node-*.json 2>/dev/null | sed -n "${t}p")
+      [ -n "$path" ] || die "没有编号 $t 的节点"
+    else
+      path="$XBD_NODES/$t"
+      [ -e "$path" ] || path=$(ls -1 "$XBD_NODES"/*"$t"* 2>/dev/null | head -1)
+      [ -e "${path:-}" ] || die "找不到节点: $t"
+    fi
+    targets=("$path")
+  fi
+
+  step "浏览器路径实测探测（会临时起一个 Xray + Chromium，不动生产服务）"
+  local f ok=0 bad=0 skip=0
+  for f in "${targets[@]}"; do
+    printf '  %-34s ' "$(python3 -c "import json;print(str(json.load(open('$f')).get('name'))[:32])" 2>/dev/null)"
+    local out rc
+    out=$(python3 "$XBD_PREFIX/tools/browserprobe.py" "$f" --save --json 2>/dev/null); rc=$?
+    case "$rc" in
+      0) ok=$((ok+1)); printf '\033[32m✓ 可用\033[0m %s\n' "$(printf '%s' "$out" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("exit_ip",""))' 2>/dev/null)";;
+      2) skip=$((skip+1)); printf '\033[33m— 无法判定\033[0m %s\n' "$(printf '%s' "$out" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("reason",""))' 2>/dev/null)";;
+      *) bad=$((bad+1)); printf '\033[31m✗ 不可用\033[0m %s\n' "$(printf '%s' "$out" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("reason",""))' 2>/dev/null)";;
+    esac
+  done
+  info ""
+  info "结果已写回节点文件，xbd node list 与面板会按实测显示"
+  [ "$bad" -gt 0 ] && warn "$bad 个节点浏览器路径不可用 —— 用原生 TLS 即可，入口不变"
+  return 0
+}
+
+# 让运行中的 Xray 与其环境变量声明保持一致（带不带 XRAY_BROWSER_DIALER）。
+# 返回 0 = 已一致或已重启成功；1 = 重启失败。
+_xbd_sync_xray_with_node() {
+  local want="no"
+  _xbd_node_needs_dialer && want="yes"
+  local pid have="no"
+  pid=$(systemctl show -p MainPID --value "$XBD_U_XRAY" 2>/dev/null || echo 0)
+  if [ "${pid:-0}" -gt 0 ] && tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^XRAY_BROWSER_DIALER='; then
+    have="yes"
+  fi
+  [ "$want" = "$have" ] && return 0
+  info "正在重启 Xray 让浏览器开关生效…"
+  systemctl restart "$XBD_U_XRAY" 2>/dev/null || true
+  sleep 4
+  unit_active "$XBD_U_XRAY" || return 1
+  # Xray 重启会让页面上的 CSRF token 作废，所以 Chromium 必须跟着重启
+  if [ "$want" = "yes" ] && unit_active "$XBD_U_CHROMIUM"; then
+    systemctl restart "$XBD_U_CHROMIUM" 2>/dev/null || true
+  fi
+  ok "Xray 已按当前节点设置重启（浏览器 $( [ "$want" = yes ] && echo 启用 || echo 关闭 )）"
+  return 0
 }
 
 cmd_node_remove() {
@@ -559,25 +753,17 @@ cmd_apply() {
   require_current_node >/dev/null
   step "生成运行配置"
   xbd_load_ports
-  local mode
-  for mode in normal dialer; do
-    if python3 "$XBD_LIBDIR/genconfig.py" \
-        --node "$XBD_NODES/current" --output "$XBD_RUNTIME/xray-$mode.json" --mode "$mode" \
-        --listen "$XBD_LISTEN_ADDR" --port-normal "$XBD_PORT_NORMAL" --port-dialer "$XBD_PORT_DIALER" \
-        --api-port "${XBD_API_PORT:-18085}" --logs "$XBD_LOGS" 2>&1 | grep -q '"ok": true'; then
-      ok "xray-$mode.json（端口 $( [ "$mode" = normal ] && echo "$XBD_PORT_NORMAL" || echo "$XBD_PORT_DIALER" )）"
-    else
-      # dialer 配置生成失败是**允许的**：说明该节点不支持 Browser Dialer
-      if [ "$mode" = dialer ]; then
-        warn "xray-dialer.json 生成失败（该节点不支持 Browser Dialer，普通模式不受影响）"
-        rm -f "$XBD_RUNTIME/xray-dialer.json"
-      else
-        die "xray-normal.json 生成失败，这是致命的"
-      fi
-    fi
-  done
-  # 生成完配置后立即校验 dialer 一致性
-  _xbd_dialer_guard || true
+  # 唯一实例：一份配置同时提供 SOCKS + HTTP，并且始终带 XRAY_BROWSER_DIALER。
+  # 因此换节点**不需要**重新生成配置，也不需要启停任何服务。
+  if python3 "$XBD_LIBDIR/genconfig.py" \
+      --node "$XBD_NODES/current" --output "$XBD_RUNTIME/xray-client.json" --mode normal \
+      --listen "$XBD_LISTEN_ADDR" --port-normal "$XBD_PORT_NORMAL" \
+      --http-port "$XBD_PORT_HTTP" --lan-http-port "$XBD_PORT_LAN_HTTP" \
+      --api-port "${XBD_API_PORT:-18085}" --logs "$XBD_LOGS" 2>&1 | grep -q '"ok": true'; then
+    ok "xray-client.json（SOCKS :$XBD_PORT_NORMAL / HTTP :$XBD_PORT_LAN_HTTP）"
+  else
+    die "xray-client.json 生成失败，这是致命的"
+  fi
 }
 
 cmd_start() {
@@ -586,10 +772,28 @@ cmd_start() {
   xbd_load_ports
   cmd_apply
 
-  step "启动常驻 Xray（普通代理模式）"
+  step "启动 Xray（唯一实例：SOCKS + HTTP）"
   systemctl enable --now "$XBD_U_XRAY" >/dev/null 2>&1 || systemctl start "$XBD_U_XRAY"
   sleep 4
   unit_active "$XBD_U_XRAY" && ok "$XBD_U_XRAY: RUNNING" || { bad "$XBD_U_XRAY 启动失败"; journalctl -u "$XBD_U_XRAY" -n 15 --no-pager; return 1; }
+  # Xray 重启换了 CSRF token，浏览器必须跟着重启（旧 WS 会挂着但已失效）
+  unit_active "$XBD_U_CHROMIUM" && systemctl restart "$XBD_U_CHROMIUM" 2>/dev/null || true
+
+  # Chromium 是 Browser Dialer 的运行时依赖，必须一起 enable：
+  # 唯一实例始终带 XRAY_BROWSER_DIALER，重启机器后没有它，依赖浏览器拨号的节点会全部失败。
+  step "启动 Browser Dialer 运行时（Chromium）"
+  systemctl enable --now "$XBD_U_CHROMIUM" >/dev/null 2>&1 || systemctl start "$XBD_U_CHROMIUM"
+  systemctl enable --now "$XBD_U_TIMER" >/dev/null 2>&1 || true
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    unit_active "$XBD_U_CHROMIUM" && [ "$(conn_count '127.0.0.1:18081')" -gt 0 ] && break
+    sleep 1
+  done
+  if unit_active "$XBD_U_CHROMIUM"; then
+    ok "$XBD_U_CHROMIUM: RUNNING（$XBD_U_TIMER 负责自愈）"
+  else
+    warn "$XBD_U_CHROMIUM 未启动 —— 依赖浏览器拨号的节点会失败（xbd dialer on 可重试）"
+  fi
 
   step "启动面板"
   systemctl enable --now "$XBD_U_PANEL" >/dev/null 2>&1 || systemctl start "$XBD_U_PANEL"
@@ -597,8 +801,8 @@ cmd_start() {
   unit_active "$XBD_U_PANEL" && ok "$XBD_U_PANEL: RUNNING ($(xbd_panel_url))" || warn "面板未启动（不影响代理）"
 
   info ""
-  ok "普通模式已就绪。局域网设备可连接 ${XBD_LISTEN_ADDR}:${XBD_PORT_NORMAL}"
-  info "如需 Browser Dialer: xbd dialer on（按需启动，不会影响上面的常驻实例）"
+  ok "已就绪。局域网设备可连接 ${XBD_LISTEN_ADDR}:${XBD_PORT_NORMAL}(SOCKS5) / ${XBD_LISTEN_ADDR}:${XBD_PORT_LAN_HTTP}(HTTP)"
+  info "两个入口都是全部节点通用；需要浏览器拨号的节点会自动使用 Chromium"
 }
 
 cmd_stop() {
@@ -607,12 +811,13 @@ cmd_stop() {
   local all=0
   [ "${1:-}" = "--all" ] && all=1
 
-  step "停止常驻 Xray"
+  step "停止 Xray"
   systemctl stop "$XBD_U_XRAY" 2>/dev/null || true
   ok "$XBD_U_XRAY: STOPPED"
-
-  if unit_active "$XBD_U_DIALER"; then
-    warn "Browser Dialer 模式仍在运行（xbd dialer off 可单独关闭）"
+  # Chromium 单独跑着没有意义（它的页面连不到 Xray），顺手停掉释放内存
+  if unit_active "$XBD_U_CHROMIUM"; then
+    systemctl stop "$XBD_U_CHROMIUM" 2>/dev/null || true
+    ok "$XBD_U_CHROMIUM: STOPPED（Xray 已停，浏览器无对象可连）"
   fi
 
   if [ "$all" -eq 1 ]; then
@@ -631,179 +836,180 @@ cmd_restart() {
   systemctl restart "$XBD_U_XRAY"
   sleep 3
   ok "$XBD_U_XRAY 已重启"
-  # Xray 重启会换 CSRF token，dialer 模式若在运行必须跟着重启浏览器。
-  # 但先检查节点是否还支持 dialer —— 不支持就直接停掉，而不是盲目重启。
-  if unit_active "$XBD_U_DIALER"; then
-    if _xbd_dialer_guard; then
-      warn "重启 Chromium 以重新同步（Xray 重启会换 token）"
-      systemctl restart "$XBD_U_CHROMIUM" 2>/dev/null || true
-    fi
+  # Xray 重启会换 CSRF token，官方页面只重试 socket、不重载自己，
+  # 所以浏览器必须跟着重启，否则 WS 永远连不上。
+  if unit_active "$XBD_U_CHROMIUM"; then
+    systemctl restart "$XBD_U_CHROMIUM" 2>/dev/null || true
   fi
   cmd_status
 }
 
+# Chromium 进程数。必须返回**单个整数**：
+#   pgrep -c 在本机会按每个匹配进程各输出一行，`| head -1` 拿到的可能是多行串，
+#   于是 [ "$n" -eq 0 ] 报 "integer expression expected"（实测踩过）。
+# 必须用 -x（精确匹配进程名）并且**不要用 -f**：
+#   -f 会匹配整条命令行，把调用者自己（shell/pgrep）也算进去，数目虚高（实测 13 vs 真值 9）。
+# pgrep -c 输出的就是计数本身，直接用它，别去数行数。
+chromium_procs() {
+  local n
+  n=$(pgrep -c -x chromium 2>/dev/null)
+  case "$n" in ''|*[!0-9]*) echo 0 ;; *) echo "$n" ;; esac
+}
+
 # ---------------------------------------------------------------------------
-# Browser Dialer 按需启停（需求第五、六、七条）
+# Browser Dialer 的运行时依赖（Chromium）启停
+#
+# 唯一 Xray 实例**始终**带 XRAY_BROWSER_DIALER，所以这里控制的不是"模式"，
+# 而是"浏览器在不在线"：
+#   * Chromium 在线 -> 所有节点都可用（BD 节点走浏览器 TLS，其余走 Xray TLS）
+#   * Chromium 停掉 -> BD 节点（xhttp/websocket 且非 REALITY）会拨号失败，
+#                      其他节点完全不受影响
 # ---------------------------------------------------------------------------
 cmd_dialer() {
   local op="${1:-status}"
   case "$op" in
     on|start|enable)  xbd_dialer_on ;;
     off|stop|disable) xbd_dialer_off ;;
-    toggle)           if unit_active "$XBD_U_DIALER"; then xbd_dialer_off; else xbd_dialer_on; fi ;;
+    toggle)           if unit_active "$XBD_U_CHROMIUM"; then xbd_dialer_off; else xbd_dialer_on; fi ;;
     status|"")        xbd_dialer_status ;;
     -h|--help)        info "用法: xbd dialer <on|off|toggle|status>" ;;
     *) die "未知操作: $op" ;;
   esac
 }
 
-# dialer 与节点的一致性守卫。
-# 为什么需要：切到不支持 Browser Dialer 的节点后，dialer 实例与 Chromium 仍在运行，
-# 但 xray-dialer.json 生成失败 —— 表现为「界面显示 Running，代理实际已死」。
-# 这是实测复现过的静默失效，必须主动收敛。
-_xbd_dialer_guard() {
-  unit_active "$XBD_U_DIALER" || return 0          # 没开就不用管
-
+# 当前节点**实际**要不要用浏览器完成 TLS。
+#
+# 判定顺序（与面板、health timer 共用同一套语义，避免两处判断打架）：
+#   1. 协议必须支持（xhttp/websocket 且非 REALITY）—— 不支持则永远不用浏览器
+#   2. 节点自己的 use_browser 开关：
+#        None  -> 默认，协议支持就用
+#        True  -> 用
+#        False -> 不用，即使协议支持（用户可为单个节点关掉）
+#
+# 这是**每个节点各自的属性**，不是全局模式：以前做成全局开关时，一关就让所有
+# 依赖浏览器的节点一起失效（实测踩过），而只是某个节点想省内存时不该牵连别人。
+_xbd_node_needs_dialer() {
+  # 判定只有一个来源：compat.py want-bd（与 run-xray.sh、health-check.sh 共用）。
+  # 以前这里自己写了一套 python，三处语义容易走偏 —— 而走偏的后果是节点永久挂住。
   local node; node=$(readlink -f "$XBD_NODES/current" 2>/dev/null || true)
-  [ -n "$node" ] && [ -e "$node" ] || return 0
+  [ -n "$node" ] && [ -e "$node" ] || return 1
+  [ "$(python3 "$XBD_LIBDIR/compat.py" want-bd "$node" 2>/dev/null)" = "yes" ]
+}
 
-  local can="False"
-  local caps; caps=$(python3 "$XBD_LIBDIR/compat.py" json "$node" 2>/dev/null)
-  case "$caps" in
-    \{*) can=$(printf '%s' "$caps" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("can_use_dialer"))' 2>/dev/null || echo False) ;;
-  esac
+# 该节点**协议层面**是否可能走浏览器转发（不管实测通不通）。
+# 与 _xbd_node_needs_dialer 的区别：这个不考虑 use_browser 开关，只看"能不能"。
+# 用途：决定 Chromium 能不能停 —— 只要还可能用到，就不能停（停了会无限挂住）。
+_xbd_node_may_use_browser() {
+  # 协议层面是否**可能**走浏览器（不管实测通不通、不管用户开关）。
+  # 用途：决定 Chromium 能不能停 —— 只要还可能用到就不能停（停了会无限挂住）。
+  local node; node=$(readlink -f "$XBD_NODES/current" 2>/dev/null || true)
+  [ -n "$node" ] && [ -e "$node" ] || return 1
+  python3 "$XBD_LIBDIR/compat.py" json "$node" 2>/dev/null \
+    | python3 -c 'import sys,json;print(json.load(sys.stdin).get("protocol_may_dialer"))' 2>/dev/null \
+    | grep -qx True
+}
 
-  if [ "$can" != "True" ] || [ ! -f "$XBD_RUNTIME/xray-dialer.json" ]; then
-    warn "当前节点不支持 Browser Dialer，正在自动关闭 dialer（Xray 常驻实例不受影响）"
-    systemctl stop "$XBD_U_CHROMIUM" 2>/dev/null || true
-    systemctl stop "$XBD_U_DIALER" 2>/dev/null || true
-    systemctl stop "$XBD_U_TIMER" 2>/dev/null || true
-    local i
-    for i in 1 2 3 4 5 6; do
-      [ "$(pgrep -c chromium 2>/dev/null | head -1 || echo 0)" -eq 0 ] && break
-      sleep 1
-    done
-    ok "Browser Dialer 已关闭，Chromium 已退出"
-    info "该节点仍可正常使用普通模式（:$(cfg_get "$XBD_CONF/ports.env" PORT_NORMAL 1080)）"
-    return 1
-  fi
-  return 0
+# 该节点能不能用浏览器（用于面板置灰）。与"要不要用"分开，因为要区分
+# "不支持所以关着"和"支持但用户自己关的"。
+_xbd_node_can_dialer() {
+  local node; node=$(readlink -f "$XBD_NODES/current" 2>/dev/null || true)
+  [ -n "$node" ] && [ -e "$node" ] || return 1
+  python3 "$XBD_LIBDIR/compat.py" json "$node" 2>/dev/null \
+    | python3 -c 'import sys,json;print(json.load(sys.stdin).get("can_use_dialer"))' 2>/dev/null \
+    | grep -qx True
 }
 
 xbd_dialer_status() {
-  printf '  Browser Dialer: %s\n' "$(unit_active "$XBD_U_DIALER" && echo "Running" || echo "Stopped")"
-  printf '  Chromium:       %s\n' "$(unit_active "$XBD_U_CHROMIUM" && echo "Running" || echo "Stopped")"
-  printf '  Xray:           %s\n' "$(unit_active "$XBD_U_XRAY" && echo "Running" || echo "Stopped")"
-  if unit_active "$XBD_U_DIALER"; then
-    printf '  Dialer 入口:    %s:%s\n' "$(cfg_get "$XBD_CONF/ports.env" LISTEN_ADDR 127.0.0.1)" "$(cfg_get "$XBD_CONF/ports.env" PORT_DIALER 1081)"
-    printf '  浏览器连接数:   %s\n' "$(conn_count '127.0.0.1:18081')"
+  printf '  Xray（唯一实例）: %s\n' "$(unit_active "$XBD_U_XRAY" && echo "Running" || echo "Stopped")"
+  printf '  Chromium:         %s\n' "$(unit_active "$XBD_U_CHROMIUM" && echo "Running" || echo "Stopped")"
+  local la; la=$(cfg_get "$XBD_CONF/ports.env" LISTEN_ADDR 127.0.0.1)
+  printf '  SOCKS5 入口:      %s:%s（全部节点）\n' "$la" "$(cfg_get "$XBD_CONF/ports.env" PORT_NORMAL 1080)"
+  printf '  HTTP  入口(LAN):  %s:%s（全部节点）\n' "$la" "$(cfg_get "$XBD_CONF/ports.env" PORT_LAN_HTTP 10809)"
+  printf '  HTTP  入口(本机): 127.0.0.1:%s\n' "$(cfg_get "$XBD_CONF/ports.env" PORT_HTTP 10808)"
+  printf '  浏览器连接数:     %s\n' "$(conn_count '127.0.0.1:18081')"
+  if _xbd_node_needs_dialer; then
+    if unit_active "$XBD_U_CHROMIUM"; then
+      printf '  当前节点:         依赖浏览器拨号 —— Chromium 在线，可用 ✓\n'
+    else
+      printf '  当前节点:         ⚠ 依赖浏览器拨号，但 Chromium 已停 —— 该节点会拨号失败\n'
+      printf '  修复:             xbd dialer on\n'
+    fi
+  else
+    printf '  当前节点:         不依赖浏览器拨号（走 Xray 自带 TLS）\n'
   fi
 }
 
 xbd_dialer_on() {
   need_root
-  step "启用 Browser Dialer 模式"
-  local node; node=$(require_current_node)
+  step "确保 Browser Dialer 运行时（Chromium）在线"
+  xbd_load_ports          # 末尾要打印两个入口，必须先把端口读进来
+  require_current_node >/dev/null || true
 
-  # 1. 该节点能不能用
-  local caps can
-  caps=$(python3 "$XBD_LIBDIR/compat.py" json "$node" 2>/dev/null || echo '{}')
-  can=$(printf '%s' "$caps" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("can_use_dialer"))' 2>/dev/null || echo False)
-  if [ "$can" != "True" ]; then
-    bad "当前节点不支持 Browser Dialer"
-    printf '%s' "$caps" | python3 -c '
-import sys, json
-c = json.load(sys.stdin)
-for n in (c.get("dialer") or {}).get("notes") or []:
-    print(f"    原因: {n}")
-' 2>/dev/null || true
-    info "该节点仍可正常使用普通 Xray 模式（xbd status 查看）"
-    return 1
-  fi
-
-  # 2. 常驻 Xray 必须在跑（但 dialer 不会去启动它 —— 独立职责）
   if ! unit_active "$XBD_U_XRAY"; then
-    warn "常驻 Xray 未运行，先启动它"
+    warn "Xray 未运行，先启动它"
     cmd_start >/dev/null 2>&1 || true
   fi
 
-  # 3. 生成 dialer 配置
-  xbd_load_ports
-  if ! python3 "$XBD_LIBDIR/genconfig.py" \
-      --node "$node" --output "$XBD_RUNTIME/xray-dialer.json" --mode dialer \
-      --listen "$XBD_LISTEN_ADDR" --port-dialer "$XBD_PORT_DIALER" \
-      --api-port "${XBD_API_PORT:-18085}" --logs "$XBD_LOGS" >/dev/null 2>&1; then
-    bad "dialer 配置生成失败"; return 1
-  fi
-  ok "已生成 xray-dialer.json"
-
-  # 4. 启动 dialer 实例 + Chromium（只动这两个单元）
-  systemctl start "$XBD_U_DIALER"
-  sleep 4
-  unit_active "$XBD_U_DIALER" || { bad "xray-dialer 启动失败"; journalctl -u "$XBD_U_DIALER" -n 10 --no-pager; return 1; }
-  ok "$XBD_U_DIALER: RUNNING"
-
-  systemctl start "$XBD_U_CHROMIUM"
+  systemctl start "$XBD_U_CHROMIUM" 2>/dev/null || true
   systemctl enable --now "$XBD_U_TIMER" >/dev/null 2>&1 || true
-  sleep 8
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    unit_active "$XBD_U_CHROMIUM" && [ "$(conn_count '127.0.0.1:18081')" -gt 0 ] && break
+    sleep 1
+  done
+
+  if ! unit_active "$XBD_U_CHROMIUM"; then
+    bad "$XBD_U_CHROMIUM 启动失败"
+    journalctl -u "$XBD_U_CHROMIUM" -n 12 --no-pager
+    return 1
+  fi
 
   # 真实校验两端是否接上。只看"端口在听"不够 ——
   # 端口改过而 Chromium 没跟上时，两边各自"正常"但一条 WS 都没有。
-  local chk
+  local chk vok vws vmismatch
   chk=$(python3 "$XBD_LIBDIR/ports.py" verify-dialer --json 2>/dev/null || echo '{}')
-  local vok vws vmismatch
   vok=$(printf '%s' "$chk" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("ok"))' 2>/dev/null || echo False)
   vws=$(printf '%s' "$chk" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("ws_connections",0))' 2>/dev/null || echo 0)
   vmismatch=$(printf '%s' "$chk" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("mismatch"))' 2>/dev/null || echo False)
 
   if [ "$vmismatch" = "True" ]; then
     bad "端口不一致：Chromium 连的不是 Xray 监听的端口"
-    info "  修正: xbd port channel <端口>  然后 xbd dialer off && xbd dialer on"
+    info "  修正: xbd port channel <端口>  然后 systemctl restart $XBD_U_CHROMIUM"
     return 1
   fi
-  if unit_active "$XBD_U_CHROMIUM"; then
-    if [ "$vok" = "True" ]; then
-      ok "$XBD_U_CHROMIUM: RUNNING（浏览器已接上，$vws 条 WS）"
-    else
-      warn "$XBD_U_CHROMIUM RUNNING，但浏览器还没接上 —— health timer 会在 30 秒内自愈"
-      info "  若一直不恢复: xbd ports verify"
-    fi
+  if [ "$vok" = "True" ]; then
+    ok "$XBD_U_CHROMIUM: RUNNING（浏览器已接上，$vws 条 WS）"
   else
-    bad "$XBD_U_CHROMIUM 启动失败"
+    warn "$XBD_U_CHROMIUM RUNNING，但浏览器还没接上 —— health timer 会在 30 秒内自愈"
+    info "  若一直不恢复: xbd ports verify"
   fi
-
-  info ""
-  ok "Browser Dialer 模式已启用"
-  info "  模式入口: ${XBD_LISTEN_ADDR}:${XBD_PORT_DIALER}（TLS 由 Chromium 完成）"
-  info "  普通模式: ${XBD_LISTEN_ADDR}:${XBD_PORT_NORMAL}（不受影响，仍在运行）"
-  info "  关闭: xbd dialer off"
+  info "两个入口都可用: ${XBD_LISTEN_ADDR}:${XBD_PORT_NORMAL}(SOCKS5) / ${XBD_LISTEN_ADDR}:${XBD_PORT_LAN_HTTP}(HTTP)"
 }
 
 xbd_dialer_off() {
   need_root
-  step "关闭 Browser Dialer 模式"
-  # 只停 dialer 与 Chromium；常驻 Xray 绝不停（需求第六条）
+  step "停掉 Browser Dialer 运行时（Chromium）"
   systemctl stop "$XBD_U_CHROMIUM" 2>/dev/null || true
-  systemctl stop "$XBD_U_DIALER" 2>/dev/null || true
   systemctl stop "$XBD_U_TIMER" 2>/dev/null || true
 
   # 等 Chromium 子进程真正退出
   local i procs
   for i in 1 2 3 4 5 6 7 8; do
-    procs=$(pgrep -c chromium 2>/dev/null | head -1 || true)
+    procs=$(chromium_procs)
     [ "${procs:-0}" -eq 0 ] && break
     sleep 1
   done
-  procs=$(pgrep -c chromium 2>/dev/null | head -1 || true)
+  procs=$(chromium_procs)
 
-  ok "$XBD_U_DIALER: STOPPED"
   ok "$XBD_U_CHROMIUM: STOPPED（残留进程 $procs）"
   if unit_active "$XBD_U_XRAY"; then
-    ok "$XBD_U_XRAY: 继续运行 ✓（普通模式不受影响）"
+    ok "$XBD_U_XRAY: 继续运行 ✓（SOCKS/HTTP 两个入口都在，普通节点不受影响）"
   else
     warn "$XBD_U_XRAY 未在运行"
   fi
-  rm -f "$XBD_RUNTIME/xray-dialer.json" 2>/dev/null || true
+  if _xbd_node_needs_dialer; then
+    warn "当前节点依赖浏览器拨号，Chromium 停掉后它会拨号失败 —— xbd dialer on 恢复"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -814,8 +1020,7 @@ cmd_port() {
   xbd_load_ports
   if [ -z "$which" ]; then
     printf '  当前端口分配:\n'
-    printf '    %-34s %s\n' "LAN SOCKS5（普通模式）"   "$XBD_PORT_NORMAL"
-    printf '    %-34s %s\n' "LAN SOCKS5（Browser Dialer）" "$XBD_PORT_DIALER"
+    printf '    %-34s %s\n' "LAN SOCKS5（全部节点）"   "$XBD_PORT_NORMAL"
     printf '    %-34s %s\n' "本机 HTTP 代理（docker 等）" "$XBD_PORT_HTTP"
     printf '    %-34s %s\n' "局域网 HTTP 代理（WiFi）" "$XBD_PORT_LAN_HTTP"
     printf '    %-34s %s\n' "Xray↔Chromium 内部通道"  "$XBD_DIALER_ADDR"
@@ -824,7 +1029,7 @@ cmd_port() {
     printf '    %-34s %s\n' "绑定地址"                "$XBD_LISTEN_ADDR"
     info ""
     info "修改: xbd port <类型> <值>"
-    info "  类型: normal | dialer | http | lan-http | channel | panel | api | addr"
+    info "  类型: normal | http | lan-http | channel | panel | api | addr"
     info "自动分配: xbd ports fix    检查冲突: xbd ports check"
     return 0
   fi
@@ -832,7 +1037,6 @@ cmd_port() {
   need_root
   case "$which" in
     normal|n)     [ -n "$value" ] || die "缺端口值"; _xbd_set_port PORT_NORMAL "$value" normal ;;
-    dialer|d)     [ -n "$value" ] || die "缺端口值"; _xbd_set_port PORT_DIALER "$value" dialer ;;
     http|h)       [ -n "$value" ] || die "缺端口值"; _xbd_set_port PORT_HTTP "$value" xray ;;
     lan-http|lh)  [ -n "$value" ] || die "缺端口值"; _xbd_set_port PORT_LAN_HTTP "$value" xray ;;
     api)          [ -n "$value" ] || die "缺端口值"; _xbd_set_port API_PORT "$value" xray ;;
@@ -843,9 +1047,9 @@ cmd_port() {
       [ -z "$holder" ] || [ "$(printf '%s' "$holder" | grep -c xray)" -gt 0 ] || die "端口 $value 已被占用（${holder:0:60}）"
       # 内部通道改端口必须**两边一起改**，否则 Chromium 还连旧端口（实测过这个坑）
       cfg_set "$XBD_CONF/ports.env" DIALER_ADDR "127.0.0.1:$value"
-      cfg_set "$XBD_CONF/dialer.env" XRAY_BROWSER_DIALER "127.0.0.1:$value"
       cfg_set "$XBD_CONF/chromium.env" BROWSER_DIALER_ADDR "127.0.0.1:$value"
-      ok "内部通道 → 127.0.0.1:$value（ports.env / dialer.env / chromium.env 已同步）"
+      ok "内部通道 → 127.0.0.1:$value（ports.env / chromium.env 已同步）"
+      info "生效需要重启两边: systemctl restart $XBD_U_XRAY $XBD_U_CHROMIUM"
       ;;
     panel|p)
       [ -n "$value" ] || die "缺端口值"
@@ -857,9 +1061,9 @@ cmd_port() {
       return 0
       ;;
     addr|listen)  [ -n "$value" ] || die "缺地址值"; cfg_set "$XBD_CONF/ports.env" LISTEN_ADDR "$value"; ok "绑定地址 → $value" ;;
-    *) die "未知端口类型: $which（可选 normal/dialer/http/lan-http/channel/panel/api/addr）" ;;
+    *) die "未知端口类型: $which（可选 normal/http/lan-http/channel/panel/api/addr）" ;;
   esac
-  info "执行 xbd apply && xbd restart 生效"
+  info "执行 xbd restart 生效"
 }
 
 # 端口子命令：检查与自动修复
@@ -890,13 +1094,12 @@ for p in json.load(sys.stdin).get("problems", []):
         [ -z "$which" ] && continue
         case "$which" in
           PORT_NORMAL)   _xbd_set_port PORT_NORMAL "$port" normal ;;
-          PORT_DIALER)   _xbd_set_port PORT_DIALER "$port" dialer ;;
           PORT_HTTP)     _xbd_set_port PORT_HTTP "$port" xray ;;
           PORT_LAN_HTTP) _xbd_set_port PORT_LAN_HTTP "$port" xray ;;
           API_PORT)      _xbd_set_port API_PORT "$port" xray ;;
           PANEL_PORT)    cfg_set "$XBD_CONF/panel.env" PANEL_PORT "$port"; ok "面板端口 → $port" ;;
           DIALER_ADDR)   cfg_set "$XBD_CONF/ports.env" DIALER_ADDR "127.0.0.1:$port"
-                         cfg_set "$XBD_CONF/dialer.env" XRAY_BROWSER_DIALER "127.0.0.1:$port"
+                         cfg_set "$XBD_CONF/chromium.env" BROWSER_DIALER_ADDR "127.0.0.1:$port"
                          ok "内部通道 → $port" ;;
         esac
       done < <(printf '%s' "$out" | python3 -c '
@@ -981,7 +1184,7 @@ cmd_diagnose() {
 
   _d "架构/发行版" PASS "$(uname -m) / $(. /etc/os-release 2>/dev/null; printf '%s' "$PRETTY_NAME")"
   [ -x "$XBD_XRAY" ] && _d "Xray 二进制" PASS "$("$XBD_XRAY" version 2>/dev/null | head -1 | cut -c1-40)" || _d "Xray 二进制" FAIL "缺失"
-  if BROWSER=$(detect_browser); then _d "浏览器" PASS "$(browser_version | cut -c1-40)"; else _d "浏览器" WARN "未安装（Browser Dialer 不可用，普通模式不受影响）"; fi
+  if BROWSER=$(detect_browser); then _d "浏览器" PASS "$(browser_version | cut -c1-40)"; else _d "浏览器" WARN "未安装（依赖浏览器拨号的节点会不可用，其余节点不受影响）"; fi
 
   local node; node=$(current_node_file 2>/dev/null || true)
   if [ -n "$node" ]; then
@@ -995,35 +1198,43 @@ cmd_diagnose() {
     _d "节点" FAIL "尚未选择"
   fi
 
-  _d "xray-client.service" "$(unit_active "$XBD_U_XRAY" && echo PASS || echo FAIL)" "$(unit_state "$XBD_U_XRAY")"
-  _d "xray-dialer.service" "$(unit_active "$XBD_U_DIALER" && echo PASS || echo WARN)" "$(unit_state "$XBD_U_DIALER")（按需）"
-  _d "chromium.service" "$(unit_active "$XBD_U_CHROMIUM" && echo PASS || echo WARN)" "$(unit_state "$XBD_U_CHROMIUM")（按需）"
+  _d "xray-client.service" "$(unit_active "$XBD_U_XRAY" && echo PASS || echo FAIL)" "$(unit_state "$XBD_U_XRAY")（唯一实例）"
   _d "panel.service" "$(unit_active "$XBD_U_PANEL" && echo PASS || echo WARN)" "$(unit_state "$XBD_U_PANEL")"
 
-  _d "普通入口 :$XBD_PORT_NORMAL" "$(port_listening_tcp "$XBD_PORT_NORMAL" && echo PASS || echo FAIL)" "$(port_holder "$XBD_PORT_NORMAL" | cut -c1-40)"
-  if unit_active "$XBD_U_DIALER"; then
-    _d "Dialer 入口 :$XBD_PORT_DIALER" "$(port_listening_tcp "$XBD_PORT_DIALER" && echo PASS || echo FAIL)" "$(port_holder "$XBD_PORT_DIALER" | cut -c1-40)"
+  # 唯一实例必须同时提供两个入站 —— 任一缺失都是配置/端口问题
+  _d "SOCKS5 入口 :$XBD_PORT_NORMAL" "$(port_listening_tcp "$XBD_PORT_NORMAL" && echo PASS || echo FAIL)" "$(port_holder "$XBD_PORT_NORMAL" | cut -c1-40)"
+  _d "HTTP 入口 :$XBD_PORT_LAN_HTTP" "$(port_listening_tcp "$XBD_PORT_LAN_HTTP" && echo PASS || echo FAIL)" "$(port_holder "$XBD_PORT_LAN_HTTP" | cut -c1-40)"
+
+  # 同一端口被两个进程绑定 = 当年双实例拆分留下的坑，必须报出来
+  local dup
+  dup=$(ss -H -lntH 2>/dev/null | awk '{print $4}' | sort | uniq -d | head -3 | tr '\n' ' ')
+  [ -z "$dup" ] && _d "端口重复绑定" PASS "无" || _d "端口重复绑定" FAIL "$dup"
+
+  # Browser Dialer 的运行时依赖：节点需要它时必须在跑
+  local cprocs; cprocs=$(chromium_procs); cprocs=${cprocs:-0}
+  local cactive=0; unit_active "$XBD_U_CHROMIUM" && cactive=1
+  if _xbd_node_needs_dialer; then
+    _d "Chromium: RUNNING" "$([ "$cactive" -eq 1 ] && echo PASS || echo FAIL)" "$cprocs 个进程（当前节点依赖浏览器拨号）"
     _d "浏览器↔Dialer" "$([ "$(conn_count '127.0.0.1:18081')" -gt 0 ] && echo PASS || echo WARN)" "$(conn_count '127.0.0.1:18081') 条 WS"
   else
-    _d "Dialer 入口" PASS "未启用（按需启动，符合预期）"
-  fi
-
-  # 按需启动的核心检查：未启用 dialer 时不应该有 Chromium
-  local cprocs; cprocs=$(pgrep -c chromium 2>/dev/null | head -1 || true); cprocs=${cprocs:-0}
-  if unit_active "$XBD_U_DIALER"; then
-    _d "Chromium 进程" "$([ "${cprocs:-0}" -gt 0 ] && echo PASS || echo FAIL)" "$cprocs 个（dialer 模式运行中）"
-  else
-    _d "Chromium 进程" "$([ "${cprocs:-0}" -eq 0 ] && echo PASS || echo FAIL)" \
-      "$cprocs 个$([ "${cprocs:-0}" -eq 0 ] && echo '（未启用 dialer 时不应有）')"
+    _d "Chromium: RUNNING" "$([ "$cactive" -eq 1 ] && echo PASS || echo WARN)" \
+      "$cprocs 个进程$([ "$cactive" -eq 0 ] && echo '（当前节点不需要，不影响）')"
   fi
 
   if [ "$quick" -eq 0 ]; then
     local addr; addr=$(cfg_get "$XBD_CONF/ports.env" LISTEN_ADDR 127.0.0.1)
-    local port="$XBD_PORT_NORMAL"
-    unit_active "$XBD_U_DIALER" && port="$XBD_PORT_DIALER"
     local ip
-    ip=$(curl -s --max-time 20 --socks5-hostname "$addr:$port" https://api.ipify.org 2>/dev/null || true)
-    _d "经代理出网" "$([ -n "$ip" ] && echo PASS || echo FAIL)" "${ip:-失败}（经 :$port）"
+    ip=$(curl -s --max-time 20 --socks5-hostname "$addr:$XBD_PORT_NORMAL" https://api.ipify.org 2>/dev/null || true)
+    _d "经代理出网" "$([ -n "$ip" ] && echo PASS || echo FAIL)" "${ip:-失败}（经 :$XBD_PORT_NORMAL）"
+
+    # 两个入站必须走同一个实例 -> 出口必须一致。不一致说明又拆出了第二个实例。
+    local iph
+    iph=$(curl -s --max-time 20 --proxy "http://$addr:$XBD_PORT_LAN_HTTP" https://api.ipify.org 2>/dev/null || true)
+    if [ -n "$ip" ] && [ "$ip" = "$iph" ]; then
+      _d "两入口出口一致" PASS "$ip（SOCKS 与 HTTP 同一实例）"
+    else
+      _d "两入口出口一致" WARN "SOCKS=${ip:-失败} HTTP=${iph:-失败}"
+    fi
 
     local loop=0
     ip -o link show type tun 2>/dev/null | grep -q . && { _d "本机 TUN" WARN "存在"; loop=1; } || _d "本机 TUN" PASS "无"
@@ -1072,14 +1283,14 @@ cmd_update() {
   fi
   chmod 0755 "$XBD_SCRIPTS"/*.sh "$XBD_LIB"/*.py "$XBD_DIST/lib"/*.py 2>/dev/null || true
   local u
-  for u in "$XBD_U_XRAY" "$XBD_U_DIALER" "$XBD_U_CHROMIUM" "$XBD_U_PANEL" "$XBD_U_HEALTH" "$XBD_U_TIMER"; do
+  for u in "$XBD_U_XRAY" "$XBD_U_CHROMIUM" "$XBD_U_PANEL" "$XBD_U_HEALTH" "$XBD_U_TIMER"; do
     install -m 0644 "$XBD_SERVICE/$u" "/etc/systemd/system/$u"
   done
   systemctl daemon-reload
   if unit_active "$XBD_U_XRAY"; then
     systemctl restart "$XBD_U_XRAY"
     sleep 2
-    if unit_active "$XBD_U_DIALER"; then
+    if unit_active "$XBD_U_CHROMIUM"; then
       systemctl restart "$XBD_U_CHROMIUM" 2>/dev/null || true
     fi
   fi
@@ -1108,7 +1319,7 @@ cmd_uninstall() {
   fi
   step "将要删除的内容"
   local items=() u
-  for u in "$XBD_U_XRAY" "$XBD_U_DIALER" "$XBD_U_CHROMIUM" "$XBD_U_PANEL" "$XBD_U_HEALTH" "$XBD_U_TIMER"; do
+  for u in "$XBD_U_XRAY" "$XBD_U_CHROMIUM" "$XBD_U_PANEL" "$XBD_U_HEALTH" "$XBD_U_TIMER"; do
     [ -f "/etc/systemd/system/$u" ] && items+=("/etc/systemd/system/$u")
   done
   [ -d "$XBD_PREFIX" ] && items+=("$XBD_PREFIX/")
@@ -1123,7 +1334,7 @@ cmd_uninstall() {
     [ "$ans" = "yes" ] || { warn "已取消"; return 1; }
   fi
   step "执行卸载"
-  systemctl disable --now "$XBD_U_TIMER" "$XBD_U_PANEL" "$XBD_U_CHROMIUM" "$XBD_U_DIALER" "$XBD_U_XRAY" 2>/dev/null || true
+  systemctl disable --now "$XBD_U_TIMER" "$XBD_U_PANEL" "$XBD_U_CHROMIUM" "$XBD_U_XRAY" 2>/dev/null || true
   for i in "${items[@]}"; do case "$i" in /etc/*) rm -f "$i" ;; esac; done
   systemctl daemon-reload
   ok "已移除 systemd 单元"
@@ -1343,9 +1554,9 @@ cmd_xray() {
       systemctl restart "$XBD_U_XRAY"
       sleep 3
       unit_active "$XBD_U_XRAY" && ok "$XBD_U_XRAY 已重启" || { bad "Xray 重启失败"; journalctl -u "$XBD_U_XRAY" -n 12 --no-pager; return 1; }
-      if unit_active "$XBD_U_DIALER"; then
+      if unit_active "$XBD_U_CHROMIUM"; then
         systemctl restart "$XBD_U_CHROMIUM" 2>/dev/null || true
-        info "Browser Dialer 模式在运行，已同步重启 Chromium"
+        info "已同步重启 Chromium（Xray 重启会换 CSRF token）"
       fi
       ;;
     -h|--help|"") info "用法: xbd xray <version|check|update>" ;;
@@ -1382,20 +1593,13 @@ proxies:
     type: http
     server: $host
     port: $XBD_PORT_LAN_HTTP
-# 需要 Browser Dialer 时取消下面注释（并先在服务器上启用）
-#  - name: "${name}-BrowserDialer"
-#    type: socks5
-#    server: $host
-#    port: $XBD_PORT_DIALER
-#    udp: true
 EOF
 
   cat > "$links" <<EOF
 # 代理链接 —— 生成时间 $(date '+%Y-%m-%d %H:%M:%S')
 SOCKS5          socks5://$host:$XBD_PORT_NORMAL
 HTTP            http://$host:$XBD_PORT_LAN_HTTP
-Browser Dialer  socks5://$host:$XBD_PORT_DIALER
-（本机进程用 127.0.0.1:$XBD_PORT_HTTP，仅回环）
+（两个入口都由同一个 Xray 实例服务，所有节点通用；本机进程用 127.0.0.1:$XBD_PORT_HTTP，仅回环）
 EOF
 
   cat > "$envf" <<EOF
@@ -1469,7 +1673,7 @@ cmd_usage() { xbd_usage; }
 xbd_usage() {
   cat <<EOF
 Xray Client Web Manager v$XBD_VERSION
-Xray 常驻底层客户端 + Browser Dialer 按需增强
+唯一 Xray 实例（SOCKS + HTTP 两入口）+ Browser Dialer 按节点自动生效
 
 用法: xbd <命令> [参数]
 
@@ -1479,30 +1683,30 @@ Xray 常驻底层客户端 + Browser Dialer 按需增强
     xray version|check|update              查看/检查/更新 Xray 内核
     uninstall                              安全卸载（先列清单）
 
-  节点（共享资产，两种模式共用）
+  节点（共享资产；是否需要浏览器拨号由服务器按节点自动决定）
     node add "<uri|json|yaml>"             导入节点（支持多行 / 多协议）
     node sub <订阅URL>                     导入订阅
-    node list                              节点列表（含两种能力）
+    node list                              节点列表（含 Xray / Browser Dialer 两种能力）
     node use <编号>                        切换当前节点
     node check [编号]                      能力检查
     node latency [编号]                    延时测试（真实请求）
     node remove <编号>                     删除节点
 
-  连接模式（Xray 常驻；Browser Dialer 按需）
-    start                                  启动常驻 Xray + 面板
-    stop [--all]                           停止常驻 Xray
-    restart                                重启常驻 Xray
-    dialer on|off|toggle|status            启用/关闭 Browser Dialer 模式
-    apply                                  只生成配置
-    port [类型] [值]                       查看/修改端口（normal/dialer/http/lan-http/channel/panel/api/addr）
-    ports check|fix|verify                 端口冲突检查 / 自动重新分配 / 校验 dialer 两端接上
+  服务（唯一实例，同时提供 SOCKS 与 HTTP）
+    start                                  启动 Xray + 面板
+    stop [--all]                           停止 Xray（--all 连面板一起停）
+    restart                                重启 Xray（会自动同步重启 Chromium）
+    dialer on|off|toggle|status            启动/停掉 Chromium（Browser Dialer 的运行时依赖）
+    apply                                  重新生成配置
+    port [类型] [值]                       查看/修改端口（normal/http/lan-http/channel/panel/api/addr）
+    ports check|fix|verify                 端口冲突检查 / 自动重新分配 / 校验浏览器两端接上
 
   本机上网 / 局域网接入
     proxy on|off|status                    让本机进程（docker/apt/curl）走我们的代理
     takeover on|off|status                 局域网透明接入（可选，默认关闭）
 
   状态与诊断
-    status [--quick]                       状态（含当前模式）
+    status [--quick]                       状态（含当前节点实际走哪条 TLS 路径）
     diagnose [--quick]                     全面诊断
     panel                                  面板地址与令牌
     export                                 导出连接配置到 generated/（方便复制）
@@ -1565,6 +1769,20 @@ cmd_selftest() {
     echo "SKIP（还没有节点）"
   fi
   rm -f /tmp/.xbd_st /tmp/.xbd_tc.json
+
+  # 架构自检：断言"唯一实例 + 两个入口 + 按节点决定是否走浏览器"这套模型真的成立。
+  # 双实例/双端口一旦回归，界面上看不出来，只有这里能发现。
+  printf '  %-10s ' "arch"
+  if [ -x "$XBD_PREFIX/tools/selftest-arch.sh" ]; then
+    if bash "$XBD_PREFIX/tools/selftest-arch.sh" >/tmp/.xbd_arch 2>&1; then
+      echo "PASS"; grep -E '架构自检: PASS' /tmp/.xbd_arch | sed 's/^/             /'
+    else
+      echo "FAIL"; grep -E '✗|架构自检: FAIL' /tmp/.xbd_arch | sed 's/^/             /'; failed=$((failed+1))
+    fi
+  else
+    echo "SKIP（缺少 tools/selftest-arch.sh）"
+  fi
+  rm -f /tmp/.xbd_arch
   echo
   [ "$failed" -eq 0 ] && { echo "自检: PASS"; return 0; } || { echo "自检: $failed 项失败"; return 1; }
 }
