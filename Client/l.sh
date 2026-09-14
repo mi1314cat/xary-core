@@ -3,7 +3,7 @@
 #  Xray Client 一键部署
 # ============================================================================
 #  用法（推荐）：
-#      bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/l.sh)
+#      bash <(curl -Ls https://raw.githubusercontent.com/mi1314cat/xary-core/main/Client/l.sh)
 #
 #  带节点（非交互）：
 #      bash <(curl -Ls .../Client/l.sh) --vless "vless://..." --yes
@@ -37,9 +37,13 @@ fi
 PREFIX="${XBD_PREFIX:-/opt/xray-browser-dialer}"
 LOG="/tmp/xbd-deploy-$(date +%H%M%S).log"
 
-ARCHIVE_URL="${XBD_ARCHIVE:-https://raw.githubusercontent.com/$REPO/$REF/$SUBDIR/$ARCHIVE_NAME}"
+MIRROR_DIRS=(
+  "https://raw.githubusercontent.com/$REPO/$REF/$SUBDIR"
+  "https://cdn.jsdelivr.net/gh/$REPO@$REF/$SUBDIR"
+  "https://github.com/$REPO/raw/refs/heads/$REF/$SUBDIR"
+)
+ARCHIVE_URL="${XBD_ARCHIVE:-${MIRROR_DIRS[0]}/$ARCHIVE_NAME}"
 SHA_URL="$ARCHIVE_URL.sha256"
-FALLBACK_URL="https://github.com/$REPO/raw/refs/heads/$REF/$SUBDIR/$ARCHIVE_NAME"
 
 if [ -t 1 ]; then
   R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; B=$'\033[36m'; D=$'\033[2m'; O=$'\033[0m'
@@ -66,9 +70,13 @@ while [ $# -gt 0 ]; do
     --no-start) PASS_ARGS+=(--no-start); shift ;;
     --ref)
       REF="${2:-}"
-      ARCHIVE_URL="https://raw.githubusercontent.com/$REPO/$REF/$SUBDIR/$ARCHIVE_NAME"
+      MIRROR_DIRS=(
+        "https://raw.githubusercontent.com/$REPO/$REF/$SUBDIR"
+        "https://cdn.jsdelivr.net/gh/$REPO@$REF/$SUBDIR"
+        "https://github.com/$REPO/raw/refs/heads/$REF/$SUBDIR"
+      )
+      ARCHIVE_URL="${MIRROR_DIRS[0]}/$ARCHIVE_NAME"
       SHA_URL="$ARCHIVE_URL.sha256"
-      FALLBACK_URL="https://github.com/$REPO/raw/refs/heads/$REF/$SUBDIR/$ARCHIVE_NAME"
       shift 2 ;;
     --prefix)   PREFIX="${2:-}"; shift 2 ;;
     -h|--help)
@@ -136,7 +144,23 @@ probe_channel() {
   CURL_MODE=()
   warn "  下载通道探测未成功，仍尝试直连"
 }
-fetch() { curl -fsSL --max-time 300 --retry 2 --retry-delay 1 "${CURL_MODE[@]}" -o "$2" "$1" 2>>"$LOG"; }
+fetch() { curl -fsSL --connect-timeout 8 --max-time 180 --retry 1 --retry-delay 1 "${CURL_MODE[@]}" -o "$2" "$1" 2>>"$LOG"; }
+
+# 逐个镜像试。为什么不是"主 + 一个备用"：
+#   实测这台机器（CN 网络）直连 github.com **直接卡死** —— 既不报错也不返回，
+#   一直挂到超时。而 raw.githubusercontent.com 1 秒就下完。
+#   单一地址会让"装不上"看起来像脚本坏了；链式 + 快速失败才能给出有用信息。
+fetch_any() {   # $1=包内文件名  $2=输出路径
+  local name="$1" out="$2" u
+  for u in "${MIRROR_DIRS[@]}"; do
+    if fetch "$u/$name" "$out" && [ "$(wc -c < "$out" 2>/dev/null || echo 0)" -gt 0 ]; then
+      dim "  来源: $u"
+      return 0
+    fi
+    warn "  镜像不通: $u"
+  done
+  return 1
+}
 
 step "下载发布包"
 WORKDIR=$(mktemp -d /tmp/xbd-deploy-XXXXXX)
@@ -144,10 +168,8 @@ WORKDIR=$(mktemp -d /tmp/xbd-deploy-XXXXXX)
 TARBALL="$WORKDIR/$ARCHIVE_NAME"
 
 probe_channel
-if ! fetch "$ARCHIVE_URL" "$TARBALL"; then
-  warn "主地址失败，尝试备用地址"
-  curl -fsSL --max-time 300 --retry 2 "${CURL_MODE[@]}" -o "$TARBALL" "$FALLBACK_URL" 2>>"$LOG" \
-    || die "下载失败: $ARCHIVE_URL（检查网络，或用 XBD_ARCHIVE 指定其它地址）"
+if ! fetch_any "$ARCHIVE_NAME" "$TARBALL"; then
+  die "所有镜像都下载失败（${MIRROR_DIRS[*]}）—— 检查网络，或用 XBD_ARCHIVE 指定其它地址"
 fi
 
 size=$(wc -c < "$TARBALL" 2>/dev/null || echo 0)
@@ -156,7 +178,7 @@ ok "已下载 $(du -h "$TARBALL" | cut -f1)"
 
 step "校验完整性"
 got=$(sha256sum "$TARBALL" | awk '{print $1}')
-if fetch "$SHA_URL" "$WORKDIR/.sha" 2>/dev/null && [ -s "$WORKDIR/.sha" ]; then
+if fetch_any "$ARCHIVE_NAME.sha256" "$WORKDIR/.sha" 2>/dev/null && [ -s "$WORKDIR/.sha" ]; then
   want=$(tr -d ' \n\r' < "$WORKDIR/.sha")
   if [ "$want" = "$got" ]; then
     ok "SHA256 校验通过"
