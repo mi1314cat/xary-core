@@ -135,6 +135,8 @@ for f in "$PROFILE_PROXY" "$DOCKER_PROXY"; do
 done
 
 # ---- 5. nftables 透明接管规则 ---------------------------------------------
+# 旧版本（有"接管局域网"模式时）会在 nftables 里留下 DNAT 规则。模式已移除，
+# 但残留规则仍会劫持局域网的 80/443，所以这里必须继续清掉。
 NFT_TABLE=""
 if command -v nft >/dev/null 2>&1 && nft list table ip xbd_takeover >/dev/null 2>&1; then
   NFT_TABLE="xbd_takeover"
@@ -164,11 +166,18 @@ if [ ${#REMOVE_UNITS[@]} -gt 0 ]; then
 fi
 if [ -n "$NFT_TABLE" ]; then
   info "  nftables 规则:"
-  info "    · table ip $NFT_TABLE（透明接管规则）"
+  info "    · table ip $NFT_TABLE（旧版遗留的透明接管规则）"
 fi
 if [ ${#REMOVE_FILES[@]} -gt 0 ]; then
   info "  文件:"
   for f in "${REMOVE_FILES[@]}"; do info "    · $f"; done
+fi
+if [ -s /var/lib/xbd-proxy/manifest ]; then
+  info "  被接管的代理配置（不是删除，是**还原成原样**）:"
+  while IFS=$'\t' read -r act path; do
+    [ -n "${path:-}" ] || continue
+    info "    · $path  $([ "$act" = edited ] && echo '(还原原文件)' || echo '(本项目新建的)')"
+  done < /var/lib/xbd-proxy/manifest
 fi
 if [ ${#REMOVE_DIRS[@]} -gt 0 ]; then
   info "  安装目录（含 Xray 内核、节点、日志、配置）:"
@@ -267,6 +276,19 @@ if [ ${#REMOVE_FILES[@]} -gt 0 ]; then
   for f in "${REMOVE_FILES[@]}"; do
     rm -f "$f" && ok "已删除 $f"
   done
+fi
+
+# 本机代理可能不是写在"我们自己的文件"里 —— xbd proxy on 发现本机已有别的服务
+# 在接管系统代理时会**就近改那一份**。那种情况不能删（那是别人的配置），要按备份
+# 还原。这件事用 xbd proxy off 做（它读 /var/lib/xbd-proxy/manifest），
+# 必须在删安装目录**之前**调用，因为 off 要用安装目录里的脚本。
+XBD_BIN="$DEFAULT_PREFIX/bin/xbd"
+if [ -f "$XBD_BIN" ] && [ -s /var/lib/xbd-proxy/manifest ]; then
+  step "还原被接管的代理配置"
+  "$XBD_BIN" proxy off 2>&1 | while IFS= read -r l; do dim "  $l"; done
+fi
+if [ -d /var/lib/xbd-proxy ]; then
+  rm -rf /var/lib/xbd-proxy && dim "  已清理 /var/lib/xbd-proxy（原文件备份）"
 fi
 
 if [ ${#REMOVE_DIRS[@]} -gt 0 ]; then
