@@ -71,7 +71,8 @@ cd "$SRC"
 find bin lib service scripts docs tools -type f \
      \( -name '*.pyc' -o -path '*__pycache__*' \) -prune -o -type f -print 2>/dev/null > "$TMP/all"
 printf '%s\n' README.md RUN.md RUN.sh l.sh uninstall-xray-client.sh VERSION \
-              xbd-client.tar.gz xbd-client.tar.gz.sha256 >> "$TMP/all"
+              xbd-client.tar.gz xbd-client.tar.gz.sha256 \
+              xbd-client.tar.xz xbd-client.tar.xz.sha256 >> "$TMP/all"
 sort -u "$TMP/all" | while read -r f; do
   [ -f "$f" ] || continue
   case "$f" in *__pycache__*|*.pyc) continue ;; esac
