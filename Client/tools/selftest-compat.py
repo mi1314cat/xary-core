@@ -55,6 +55,29 @@ def bd(n):
     return c.check_all(n)["can_use_dialer"]
 
 
+# --- 0. want_browser_dialer：进程级开关必须与实测结论一致 ---------------------
+# 这条曾经真的错了：node-001（vless+ws）实测浏览器路径不通（rc=28），面板因此只给
+# 「普通连接」，但 want-bd 仍然回 yes —— 于是进程带着 XRAY_BROWSER_DIALER 启动，
+# 而出站被交给浏览器，dialTask() 又没有超时，节点**永久挂住**。
+# 所以这条不变式必须钉住：want=True ⇒ can_use_dialer=True。
+check("实测失败 → 不用浏览器", c.want_browser_dialer(node(browser_probe={"ok": False})), False)
+check("实测失败 → can_use_dialer 也是 False", bd(node(browser_probe={"ok": False})), False)
+check("实测成功 → 用浏览器", c.want_browser_dialer(node(browser_probe={"ok": True})), True)
+check("没测过 → 默认用浏览器", c.want_browser_dialer(node()), True)
+check("显式选普通连接 → 不用", c.want_browser_dialer(node(use_browser=False)), False)
+check("显式选 BD → 用", c.want_browser_dialer(node(use_browser=True)), True)
+check("实测失败时显式选 BD 也不许用（会挂住）",
+      c.want_browser_dialer(node(use_browser=True, browser_probe={"ok": False})), False)
+check("非 ws/xhttp 传输 → 不用", c.want_browser_dialer(node(transport="raw")), False)
+check("reality → 不用", c.want_browser_dialer(node(security="reality")), False)
+for _n in (node(), node(transport="websocket"), node(security="reality"),
+           node(transport="raw"), node(protocol="vmess"),
+           node(browser_probe={"ok": False}), node(browser_probe={"ok": True}),
+           node(use_browser=True, browser_probe={"ok": False})):
+    check(f"不变式 want⇒can_use_dialer（{_n['transport']}/{_n['protocol']}"
+          f"/probe={(_n.get('browser_probe') or {}).get('ok')}/ub={_n.get('use_browser')}）",
+          (not c.want_browser_dialer(_n)) or bd(_n), True)
+
 def xray(n):
     return c.check_all(n)["can_use_xray"]
 
