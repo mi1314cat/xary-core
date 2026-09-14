@@ -58,13 +58,14 @@ bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Clien
 局域网设备 ──┐
              ├─→ 这台服务器 ──→ 你现有的节点 ──→ Internet
 Windows PC ──┘        │
-                      ├── 普通模式（:1080）   Xray 自己完成 TLS
-                      └── Browser Dialer（:1081）  真实 Chromium 完成 TLS
+                      ├── SOCKS5 :1080  ┐
+                      └── HTTP   :10809 ┘ 同一个 Xray 实例，全部节点通用
+                                          └─ 若该节点需要浏览器指纹，Xray 自动把 TLS 交给 Chromium
 ```
 
-* **Xray 常驻**：负责普通代理，永不为 Browser Dialer 让路
-* **Browser Dialer 按需**：点点开关才启动，不用时不运行 Chromium（0 进程）
-* **节点是共享资产**：同一个节点两种用法，不用导入两份
+* **只有一个 Xray 实例、两个入口**：不用记"哪个端口对应哪种模式"，两个端口对所有节点都通用
+* **Browser Dialer 是节点的属性，不是模式**：节点协议支持时自动走浏览器 TLS，否则走 Xray 自带 TLS
+* **节点是共享资产**：同一个节点两种用法，不用导入两份，切换也不会改写节点
 * **不碰你的环境**：只写自己的目录和自己创建的服务
 
 ---
@@ -93,10 +94,8 @@ xbd uninstall               # 安全卸载（也可用上面的独立删除脚�
 | 文档 | 内容 |
 |---|---|
 | [RUN.md](RUN.md) | **使用说明（先看这个）** |
-| [docs/README.md](docs/README.md) | 完整功能与架构 |
-| `docs/ARCHITECTURE.md` | 数据流、端口、环路防护 |
-| `docs/COMPATIBILITY.md` | 各协议的 Browser Dialer 兼容性（含源码依据） |
-| `docs/TROUBLESHOOTING.md` | 排错 |
+| [README.md](README.md) | 功能概览与命令速查（本文件） |
+| [docs/README.md](docs/README.md) | 架构、协议兼容性矩阵、early data / ECH 的实测结论 |
 
 ---
 
@@ -111,25 +110,20 @@ cd /path/to/project
 ./bin/xbd install
 ```
 
-### 方式二：只传一个文件
+### 方式二：一键脚本 / 发布包
 
 ```bash
-./tools/build-bundle.sh      # 在项目根执行，重新生成 A/xbd-install.sh
+bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/l.sh)
 ```
 
-然后只上传 `A/xbd-install.sh`，服务器上：
+`l.sh` 下载 `Client/xbd-client.tar.gz` → 校验 SHA256 → 解压 → 调 `RUN.sh` 安装。
+本地改完源码后重新打包发布件：
 
 ```bash
-chmod +x xbd-install.sh
-./xbd-install.sh install
-./xbd-install.sh install --vless "vless://..."
+bash tools/make-release.sh    # 生成 xbd-client.tar.gz + .sha256
 ```
 
-`xbd-install.sh` 是**自解压脚本**：它会把自己内部的载荷释放到
-`/opt/xray-browser-dialer/xbd-dist/`，然后调用 `xbd install`。
-它和整目录版本内容完全一致 —— 每次构建都从 `A/` 源码生成，不做手工同步。
-
-> **改完源码记得重新构建**：`./tools/build-bundle.sh`
+> 发布包必须重新生成，否则线上拉到的是旧代码。
 
 ## 日常操作
 
@@ -138,8 +132,8 @@ xbd status                  # 状态（含当前连接模式）
 xbd node add "<uri>"        # 加节点（支持 vless/vmess/trojan/ss/hysteria2、订阅、JSON、YAML）
 xbd node list               # 节点列表（含"两种用法"的能力）
 xbd node use <编号>          # 切换节点
-xbd dialer on               # 按需启用 Browser Dialer（会启动 Chromium）
-xbd dialer off              # 关闭（Chromium 退出，Xray 继续运行）
+xbd dialer on               # 启动 Chromium（Browser Dialer 的运行时依赖）
+xbd dialer off              # 停掉 Chromium（Xray 继续运行，需要浏览器的节点会暂时不可用）
 xbd diagnose                # 全面诊断
 xbd ech                     # 验证 Chromium 原生 ECH
 xbd panel                   # 面板地址与令牌
@@ -148,16 +142,25 @@ xbd panel                   # 面板地址与令牌
 ## 架构要点
 
 ```
-Xray Client（常驻）
-├── 普通模式   :1080  ← 默认，Xray 自己完成 TLS
-└── Browser Dialer :1081 ← 按需启用，TLS 交给 Chromium
+xray-client.service（唯一实例，始终带 XRAY_BROWSER_DIALER）
+├── SOCKS5  :1080   绑 LAN   ← 所有节点
+├── HTTP    :10809  绑 LAN   ← 所有节点
+├── HTTP    :10808  绑回环   ← 本机 docker/apt/curl
+└── :18081  绑回环   ← Xray ↔ Chromium 内部通道（Browser Dialer）
+
+chromium-browser-dialer.service  加载官方内嵌页面，真实完成 TLS（约 255MB）
 ```
 
-* **Xray 是常驻底层客户端**，负责普通代理。
-* **Browser Dialer 是按需增强**，关闭它不会停止 Xray。
-* **Chromium 只是 Browser Dialer 的运行时依赖**，未启用时不运行（实测 0 进程）。
-* **节点是共享资产**：同一个节点既可用普通模式，也可能支持 Browser Dialer，
-  由能力检查分别判定，不用导入两份。
+**为什么"用不用浏览器"由节点决定，而不是让你选模式**：
+Browser Dialer 在 Xray 里就是「出站的一种拨号方式」（`XRAY_BROWSER_DIALER`），
+它只在 `xhttp`/`websocket` 且非 REALITY 时生效，其余节点 Xray 直接忽略它。
+所以同一个实例、同一对端口就能服务全部节点 —— 不需要第二个实例，也不需要第二个端口。
+
+* **Xray 是常驻底层客户端**：换节点不改配置、不重启服务（脚本会自动重启）。
+* **Chromium 是 Browser Dialer 的运行时依赖**：它是唯一实例的常驻依赖，约 255MB。
+  停掉它只影响"需要浏览器指纹"的节点，其余节点照常。
+* **节点是共享资产**：同一个节点既可能走 Xray 自带 TLS，也可能走浏览器 TLS，
+  由能力检查分别判定，不用导入两份，切换也不改写节点。
 
 ## 自检
 
@@ -165,4 +168,7 @@ Xray Client（常驻）
 ./bin/xbd selftest
 ```
 
-覆盖：多协议解析、双能力判定、配置生成、systemd 单元、脚本路径。
+覆盖：多协议解析、双能力判定、配置生成、systemd 单元、脚本路径，
+以及 **架构自检 `tools/selftest-arch.sh`** —— 它断言"两个入口必须由同一个 Xray 进程监听、
+两个入口出口必须一致、不需要浏览器的节点在 Chromium 停掉后仍能出网"。
+这几条是防止悄悄退回"双实例/双端口"的唯一手段（界面上看不出来）。
