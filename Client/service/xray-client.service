@@ -1,6 +1,6 @@
 [Unit]
-Description=Xray Client（常驻，普通代理模式）
-Documentation=file:/opt/xray-browser-dialer/docs/ARCHITECTURE.md
+Description=Xray Client（唯一实例：常驻 SOCKS+HTTP，Browser Dialer 常备）
+Documentation=file:/opt/xray-browser-dialer/README.md
 After=network-online.target nss-lookup.target
 Wants=network-online.target
 # 刻意不依赖系统自带 xray.service
@@ -8,7 +8,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart=/opt/xray-browser-dialer/scripts/run-xray.sh normal
+ExecStart=/opt/xray-browser-dialer/scripts/run-xray.sh
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15
