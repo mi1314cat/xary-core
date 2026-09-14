@@ -349,4 +349,4 @@ fi
 [ -n "$NODES_BACKUP" ] && info "节点配置备份: $NODES_BACKUP"
 info ""
 dim "如需重新安装："
-dim "  bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/Client/l.sh)"
+dim "  bash <(curl -Ls https://raw.githubusercontent.com/mi1314cat/xary-core/main/Client/l.sh)"
