@@ -1,6 +1,6 @@
 [Unit]
-Description=Browser Dialer 心跳自愈（仅在 dialer 模式运行时生效）
-After=xray-dialer.service
+Description=Browser Dialer 心跳自愈（确保 Chromium 在线且 WS 已接上）
+After=xray-client.service
 
 [Service]
 Type=oneshot
