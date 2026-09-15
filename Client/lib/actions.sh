@@ -338,7 +338,7 @@ cmd_node_add() {
   [ "${XBD_KEEP_UNSUPPORTED:-0}" = "1" ] && KEEP_UNSUP=1
   python3 "$XBD_LIBDIR/nodefilter.py" "$tmp" "$XBD_LIBDIR" "$KEEP_UNSUP" "$XBD_NODES" > /tmp/.xbd_kept.jsonl 2>/tmp/.xbd_skipped.err
 
-  local count=0 idx=0
+  local count=0 idx=0 repaired=0   # repaired: 本次为"已存在的节点"补指纹的个数（也算成功）
   while IFS= read -r node_json; do
     [ -z "$node_json" ] && continue
     idx=$((idx+1))
@@ -356,16 +356,47 @@ cmd_node_add() {
     warn "已跳过 $nskip 个节点："
     python3 -c '
 import json
-for name, why in json.load(open("/tmp/.xbd_skipped.json")):
-    print(f"    · {str(name)[:34]:36s} {why}")
+dup = []
+for rec in json.load(open("/tmp/.xbd_skipped.json")):
+    name, why = rec[0], rec[1]
+    path = rec[2] if len(rec) > 2 else ""
+    print("    · %-36s %s" % (str(name)[:34], why))
+    if path and "重复" in why:
+        dup.append(path)
+# 结尾必须补换行：bash 的 `while read` 会**跳过没有尾换行的最后一行**，
+# 少了这个 \n，下面那个循环体一次都不会执行（实测踩过：看着对，静默不干活）。
+if dup:
+    open("/tmp/.xbd_dup_paths", "w").write("\n".join(dup) + "\n")
 ' 2>/dev/null || true
+    # 重复导入时，把「已有那一份」也补一次指纹。
+    # 用户的直觉是"重新导入一次应该就好了"，但去重会直接跳过该条目 ——
+    # 那份没指纹的坏节点根本没人碰，于是"再次导入还是不行"（实测踩过）。
+    if [ -s /tmp/.xbd_dup_paths ]; then
+      local dupf
+      while IFS= read -r dupf; do
+        [ -n "$dupf" ] && [ -f "$dupf" ] || continue
+        info "  导入的是已存在的节点，为它补证书指纹: $(basename "$dupf")"
+        _xbd_autopin_cert "$dupf"
+        repaired=$((repaired+1))
+      done < /tmp/.xbd_dup_paths
+      rm -f /tmp/.xbd_dup_paths
+    fi
     info "  （想保留这些节点存档：加 --keep-unsupported）"
   fi
   rm -f /tmp/.xbd_kept.jsonl /tmp/.xbd_skipped.json /tmp/.xbd_skipped.txt
 
   rm -f "$tmp" /tmp/.xbd_one.json /tmp/.xbd_multi_err
+  # 修好已有节点也算成功：用户"重新导入"的意图就是让它能用，
+  # 这时 count=0 是正常的，不能报失败（否则面板红字、用户以为没成）。
+  if [ "$count" -eq 0 ] && [ "${repaired:-0}" -gt 0 ]; then
+    ok "导入的节点已存在，已为它补上证书指纹 —— 现在可以用了"
+    count=1
+  fi
   [ "$count" -gt 0 ] || die "没有成功导入任何节点"
   [ "$total" -gt 1 ] && { info ""; ok "共导入 $count/$total 个节点"; }
+  # 必须显式 return 0：上面那条 `[ ... ] && { ...; }` 在"只导入 1 个节点"时为假，
+  # 函数于是以退出码 1 结束 —— 面板把它当失败（红字），而节点其实好好地加上了。
+  return 0
 }
 
 cmd_node_import_one() {  # 解析一个节点并落盘；成功返回 0
@@ -388,8 +419,13 @@ print(s[:40] or "node")' "$tmp")
     [ -e "$dest" ] && { idx=$((idx+1)); continue; }
     break
   done
+  # 顺序很重要：**先在临时文件上补指纹，再落盘**。
+  # 旧顺序是先 install 再补 —— 而补的过程可能要编译证书探针（冷构建实测 114 秒），
+  # 面板导入动作的超时是 120 秒：一旦被杀，磁盘上就留下一个"已导入但没有指纹"的
+  # 节点，界面上看是成功的，实际必然连不上（Xray 26.x 没有 allowInsecure）。
+  # 现在最坏情况只是"没导入成功"，用户重试即可，不会再产生半成品。
+  _xbd_autopin_cert "$tmp"    # v2.2: 导入即固定证书指纹，免除手动 xbd cert
   install -m 0644 "$tmp" "$dest"; rm -f "$tmp"
-  _xbd_autopin_cert "$dest"   # v2.2: 导入即固定证书指纹，免除手动 xbd cert
 
   local caps
   # 注意：compat.py 在"两种模式都不可用"时退出码为 1（这是有效结论，不是失败），
@@ -1824,6 +1860,29 @@ EOF
 # 自签/老格式证书的节点导入即“连不上”。以前要手动执行 xbd cert <编号>，
 # 现在导入时自动做掉 —— 加进来就能用。
 # 失败不阻断导入（warn 后继续），因为“能用”还取决于服务端是否在线。
+# 证书探针：**优先用编译好的二进制**，没有才编译一次并缓存到 runtime/。
+#
+# 为什么非缓存不可（实测数据）：
+#   `go run .` 冷构建要 ~114 秒（quic-go 全量编译，本机 aarch64 实测），
+#   而面板的导入动作超时是 120 秒 —— 只差 6 秒。于是"首次导入"经常被杀在半路：
+#   节点文件已经落盘、指纹还没写 → 用户看到导入成功，节点却必然连不上
+#   （Xray 26.x 没有 allowInsecure，证书 CN-only 直接 CRYPTO_ERROR）。
+#   缓存后是毫秒级，彻底离开超时窗口。二进制放 runtime/（发布包与 GitHub 都不含它）。
+_xbd_cert_probe() {   # $1=addr $2=port $3=sni → 探针输出（stdout+stderr）
+  local addr="$1" port="$2" sni="$3"
+  local dir="$XBD_DIST/tools/certprobe"
+  local bin="$XBD_RUNTIME/certprobe"
+  [ -d "$dir" ] || { warn "缺少工具目录 $dir"; return 1; }
+  command -v go >/dev/null 2>&1 || { warn "机器缺少 go 工具链（apt install golang-go 后可重试）"; return 1; }
+  if [ ! -x "$bin" ]; then
+    info "  首次使用需编译证书探针（约 1-2 分钟，只编译这一次）…"
+    mkdir -p "$XBD_RUNTIME"
+    ( cd "$dir" && GOFLAGS=-mod=mod https_proxy="${XBD_HTTP_PROXY:-}" go build -o "$bin" . ) >/dev/null 2>&1 \
+      || { warn "证书探针编译失败（检查 go 工具链与网络）"; return 1; }
+  fi
+  "$bin" "$addr" "$port" "$sni" 2>&1
+}
+
 _xbd_autopin_cert() {
   local path="$1"
   [ -f "$path" ] || return 0
@@ -1847,11 +1906,8 @@ PYIN
     warn "未能自动固定证书：机器缺少 go 工具链（安装 golang-go 后可手动 xbd cert <编号> 重试）"
     return 0
   fi
-  local probe="$XBD_DIST/tools/certprobe"
-  [ -d "$probe" ] || { warn "缺少工具目录 $probe，自动固定跳过"; return 0; }
-
   local out fp
-  if ! out=$(cd "$probe" && GOFLAGS=-mod=mod https_proxy="${XBD_HTTP_PROXY:-}" go run . "$addr" "$port" "$sni" 2>&1); then
+  if ! out=$(_xbd_cert_probe "$addr" "$port" "$sni"); then
     warn "证书探测失败（节点可能离线/非TLS）；可手动 xbd cert <编号> 重试"
     return 0
   fi
@@ -1869,6 +1925,13 @@ json.dump(d, open(p, "w"), ensure_ascii=False, indent=2)
 print(f"  已自动固定 pinned_cert_sha256: {fp[:32]}...")
 PYIN
   info "  导入即用，无需手动固定（服务端换签后需重新固定）"
+  # 如果补的正是**当前节点**，必须立刻重启：运行中的 Xray 用的是上一次生成的配置，
+  # 指纹写进节点文件它并不知道 —— 实测踩过：面板导入修好了节点文件，但服务还在用
+  # 旧配置，出口一直是 000，用户以为"修了还是不行"。
+  if [ "$(basename "$(readlink -f "$XBD_NODES/current" 2>/dev/null || true)" 2>/dev/null)" = "$(basename "$path")" ]; then
+    info "  这是当前节点，重启 Xray 让指纹生效…"
+    _xbd_sync_xray_with_node force || warn "重启失败，请手动执行: xbd restart"
+  fi
   return 0
 }
 
@@ -1876,7 +1939,27 @@ PYIN
 # Xray 26.x 移除了 allowInsecure，替代方案就是 pinnedPeerCertSha256。
 cmd_cert() {
   local t="${1:-}"
-  [ -n "$t" ] || die "用法: xbd cert <编号|文件名>   （取该节点服务端证书指纹并固定）"
+  # 批量补指纹：所有「声明跳过证书校验、但还没有指纹」的节点。
+  # 用途：修历史遗留 —— 导入时被杀在半路、或服务端换签后指纹失效。
+  if [ "$t" = "--missing" ] || [ "$t" = "--all" ]; then
+    local f need n=0 rc=0
+    for f in "$XBD_NODES"/node-*.json; do
+      [ -e "$f" ] || continue
+      need=$(python3 -c 'import json,sys
+d=json.load(open(sys.argv[1]))
+print(1 if (d.get("allow_insecure") or d.get("skip_cert_verify")) and not d.get("pinned_cert_sha256") else 0)' "$f" 2>/dev/null || echo 0)
+      [ "$need" = "1" ] || continue
+      n=$((n+1))
+      cmd_cert "$(basename "$f")" || rc=1
+    done
+    if [ "$n" -eq 0 ]; then
+      ok "所有需要指纹的节点都已固定（无需处理）"
+    else
+      info "共处理 $n 个节点"
+    fi
+    return $rc
+  fi
+  [ -n "$t" ] || die "用法: xbd cert <编号|文件名> | --missing（批量补齐缺失的指纹）"
   local path
   if [[ "$t" =~ ^[0-9]+$ ]]; then
     path=$(xbd_node_path "$t")
@@ -1894,13 +1977,8 @@ cmd_cert() {
   step "取服务端证书指纹"
   info "  节点: $(basename "$path")"
   info "  目标: [$addr]:$port  SNI=$sni"
-  command -v go >/dev/null 2>&1 || die "需要 go 工具链（apt install golang-go）"
-
-  local probe="$XBD_DIST/tools/certprobe"
-  [ -d "$probe" ] || die "缺少工具目录 $probe（升级到包含 tools/ 的版本）"
-
   local out
-  out=$(cd "$probe" && GOFLAGS=-mod=mod https_proxy="${XBD_HTTP_PROXY:-}" go run . "$addr" "$port" "$sni" 2>&1)
+  out=$(_xbd_cert_probe "$addr" "$port" "$sni") || die "证书探测失败（节点离线/非 TLS？）"
   printf '%s\n' "$out" | sed 's/^/  /'
 
   local fp
@@ -1964,7 +2042,7 @@ Xray Client Web Manager v$XBD_VERSION
     diagnose [--quick]                     全面诊断
     panel                                  面板地址与令牌
     export                                 导出连接配置到 generated/（方便复制）
-    cert <编号>                            取服务端证书指纹并固定（自签证书节点用）
+    cert <编号|--missing>                  取服务端证书指纹并固定（自签证书节点用；--missing 批量补齐）
     ech                                    验证 Chromium 原生 ECH
 
   selftest                                 运行内置自检
