@@ -711,6 +711,13 @@ add_config() {
         print_info "WS 路径: $WS_PATH"
     fi
 
+    # 4.9 接入域名确认 (v2 fix: 持久化 _serverName, 客户端不再依赖证书文件名)
+    printf "请输入访问域名 (客户端 server/sni 使用, 默认: %s): " "$CERT_DOMAIN" >&2
+    read -r front_domain
+    front_domain=$(clean_input "$front_domain" | tr '[:upper:]' '[:lower:]')
+    FRONT_DOMAIN=${front_domain:-$CERT_DOMAIN}
+    CERT_DOMAIN="$FRONT_DOMAIN"
+
     # 5. ML-KEM PQ 加密 (可选)
     SERVER_DEC="none"
     CLIENT_ENC=""
@@ -878,9 +885,9 @@ EOF
     fi
 
     # 清除空 echServerKeys (CDN-ECH 模式) + 持久化客户端 ML-KEM encryption (重建用)
-    python3 - "$file" "$CLIENT_ENC" <<'PY'
+    python3 - "$file" "$CLIENT_ENC" "$CERT_DOMAIN" <<'PY'
 import json, sys
-p, enc = sys.argv[1], sys.argv[2]
+p, enc, srv = sys.argv[1], sys.argv[2], sys.argv[3]
 d = json.load(open(p))
 ts = d["inbounds"][0]["streamSettings"]["tlsSettings"]
 # 仅清除空值 (CDN-ECH 模式); direct-ECH 模式的 echServerKeys 必须保留
@@ -890,6 +897,8 @@ if enc:
     d["_clientEncryption"] = enc
 elif "_clientEncryption" in d:
     del d["_clientEncryption"]
+if "_serverName" not in d:
+    d["_serverName"] = srv
 json.dump(d, open(p, "w"), indent=2)
 PY
 
@@ -942,6 +951,24 @@ if pattern not in inc:
 json.dump(d, open(p, "w"), indent=2)
 print(f"[OK] include 已确保: {pattern}")
 PY
+}
+
+# ================================
+# v2 fix: 从证书提取真实域名 (openssl 解析 SAN/CN, 不再依赖文件名!)
+# ================================
+extract_cert_domain() {
+    local crt="$1"
+    local dom=""
+    if command -v openssl >/dev/null 2>&1 && [[ -f "$crt" ]]; then
+        dom=$(openssl x509 -in "$crt" -noout -ext subjectAltName 2>/dev/null |
+            grep -oE "DNS:[^,]+" | head -1 | cut -d: -f2 | tr '[:upper:]' '[:lower:]')
+        [[ -z "$dom" ]] && dom=$(openssl x509 -in "$crt" -noout -subject 2>/dev/null |
+            grep -oE "CN *= *[^,]+" | head -1 | sed 's/.*CN *= *//' | tr -d '"' | tr '[:upper:]' '[:lower:]')
+    fi
+    if [[ -z "$dom" ]]; then
+        dom=$(basename "$crt" | sed -E 's/\.(crt|pem)$//; s/_cert$//' | sed 's/^cert-//')
+    fi
+    echo "$dom"
 }
 
 # ================================
@@ -1151,7 +1178,9 @@ rebuild_one() {
     VLESS_TRANSPORT=$(jq -r '.inbounds[0].streamSettings.network' "$file")
     CERT_FILE=$(jq -r '.inbounds[0].streamSettings.tlsSettings.certificates[0].certificateFile' "$file")
     KEY_FILE=$(jq -r '.inbounds[0].streamSettings.tlsSettings.certificates[0].keyFile' "$file")
-    CERT_DOMAIN=$(basename "$CERT_FILE" .crt | sed 's/cert-//')
+    CERT_DOMAIN=$(extract_cert_domain "$CERT_FILE")
+    sn=$(jq -r '._serverName // ""' "$file" 2>/dev/null)
+    [[ -n "$sn" && "$sn" != "null" ]] && CERT_DOMAIN="$sn"
     CLIENT_ENC=$(grep -oP '"decryption"\s*:\s*"\K[^"]+' "$file" | head -1)
     CLIENT_ENC=""
     ECH_SERVER_KEYS=$(jq -r '.inbounds[0].streamSettings.tlsSettings.echServerKeys // ""' "$file")
@@ -1284,4 +1313,3 @@ config_menu() {
     done
 }
 config_menu
-
