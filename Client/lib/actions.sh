@@ -484,16 +484,51 @@ cmd_node_list() {
   XBD_PREFIX="$XBD_PREFIX" python3 "$XBD_LIBDIR/nodelist.py"
 }
 
+# 解析「编号 | 文件名 | 名称」→ 节点文件路径。找不到就输出空串，由调用方报错。
+#
+# 为什么必须收成一个函数：这段逻辑原本被复制了 7 份（node use/browser/probe/remove/
+# check/cert/use-as），而且那个写法在 set -euo pipefail 下有隐蔽的坑：
+#     path=$(ls -1 "$XBD_NODES"/*"$t"* 2>/dev/null | head -1)
+# 通配符不匹配时 ls 退出码 2，pipefail 让整个命令替换失败，set -e 于是**直接退出、
+# 一个字都不打印**。实测：`xbd node remove HY2`（用面板显示的名称）静默退出 2，
+# 用户只会以为"命令没反应"。
+# 顺带支持按节点的 name 字段匹配 —— 面板显示的就是这个名字，用户自然会用它。
+xbd_node_path() {
+  local t="${1:-}" path=""
+  [ -n "$t" ] || return 0
+  if [[ "$t" =~ ^[0-9]+$ ]]; then
+    path=$(ls -1 "$XBD_NODES"/node-*.json 2>/dev/null | sed -n "${t}p" || true)
+  else
+    [ -e "$XBD_NODES/$t" ] && path="$XBD_NODES/$t"
+    [ -n "$path" ] || path=$(ls -1 "$XBD_NODES"/*"$t"* 2>/dev/null | head -1 || true)
+    [ -n "$path" ] || path=$(python3 - "$XBD_NODES" "$t" <<'PY' 2>/dev/null || true
+import json, os, sys
+ndir, want = sys.argv[1], sys.argv[2].strip().lower()
+for f in sorted(os.listdir(ndir)):
+    if not f.endswith(".json"):
+        continue
+    try:
+        n = json.load(open(os.path.join(ndir, f)))
+    except Exception:
+        continue
+    if (n.get("name") or "").strip().lower() == want:
+        print(os.path.join(ndir, f))
+        break
+PY
+)
+  fi
+  printf '%s' "${path:-}"
+}
+
 cmd_node_use() {
   local t="${1:-}" how="${2:-}"
   [ -n "$t" ] || { cmd_node_list; info ""; info "用法: xbd node use <编号|文件名> [bd|normal]"; return 0; }
   local path
   if [[ "$t" =~ ^[0-9]+$ ]]; then
-    path=$(ls -1 "$XBD_NODES"/node-*.json 2>/dev/null | sed -n "${t}p")
+    path=$(xbd_node_path "$t")
     [ -n "$path" ] || die "没有编号 $t 的节点"
   else
-    path="$XBD_NODES/$t"
-    [ -e "$path" ] || path=$(ls -1 "$XBD_NODES"/*"$t"* 2>/dev/null | head -1)
+    path=$(xbd_node_path "$t")
     [ -e "${path:-}" ] || die "找不到节点: $t"
   fi
   ln -sfn "$(basename "$path")" "$XBD_NODES/current"
@@ -564,11 +599,10 @@ cmd_node_browser() {
   [ -n "$t" ] || die "用法: xbd node browser <编号|文件名> <on|off|auto>"
   local path
   if [[ "$t" =~ ^[0-9]+$ ]]; then
-    path=$(ls -1 "$XBD_NODES"/node-*.json 2>/dev/null | sed -n "${t}p")
+    path=$(xbd_node_path "$t")
     [ -n "$path" ] || die "没有编号 $t 的节点"
   else
-    path="$XBD_NODES/$t"
-    [ -e "$path" ] || path=$(ls -1 "$XBD_NODES"/*"$t"* 2>/dev/null | head -1)
+    path=$(xbd_node_path "$t")
     [ -e "${path:-}" ] || die "找不到节点: $t"
   fi
   [ -n "$v" ] || die "用法: xbd node browser <编号|文件名> <on|off|auto>"
@@ -649,11 +683,10 @@ cmd_node_probe() {
     [ -n "$t" ] || { cmd_node_list; info ""; info "用法: xbd node probe <编号|文件名> | xbd node probe --all"; return 0; }
     local path
     if [[ "$t" =~ ^[0-9]+$ ]]; then
-      path=$(ls -1 "$XBD_NODES"/node-*.json 2>/dev/null | sed -n "${t}p")
+      path=$(xbd_node_path "$t")
       [ -n "$path" ] || die "没有编号 $t 的节点"
     else
-      path="$XBD_NODES/$t"
-      [ -e "$path" ] || path=$(ls -1 "$XBD_NODES"/*"$t"* 2>/dev/null | head -1)
+      path=$(xbd_node_path "$t")
       [ -e "${path:-}" ] || die "找不到节点: $t"
     fi
     targets=("$path")
@@ -705,10 +738,9 @@ cmd_node_remove() {
   [ -n "$t" ] || die "用法: xbd node remove <编号|文件名>"
   local path
   if [[ "$t" =~ ^[0-9]+$ ]]; then
-    path=$(ls -1 "$XBD_NODES"/node-*.json 2>/dev/null | sed -n "${t}p")
+    path=$(xbd_node_path "$t")
   else
-    path="$XBD_NODES/$t"
-    [ -e "$path" ] || path=$(ls -1 "$XBD_NODES"/*"$t"* 2>/dev/null | head -1)
+    path=$(xbd_node_path "$t")
   fi
   [ -e "${path:-}" ] || die "找不到节点: $t"
   local base; base=$(basename "$path")
@@ -728,12 +760,11 @@ cmd_node_latency() {
     for f in "$XBD_NODES"/node-*.json; do [ -e "$f" ] && files+=("$f"); done
     [ ${#files[@]} -gt 0 ] || die "还没有节点"
   elif [[ "$t" =~ ^[0-9]+$ ]]; then
-    local p; p=$(ls -1 "$XBD_NODES"/node-*.json 2>/dev/null | sed -n "${t}p")
+    local p; p=$(xbd_node_path "$t")
     [ -n "$p" ] || die "没有编号 $t 的节点"
     files=("$p")
   else
-    local p="$XBD_NODES/$t"
-    [ -e "$p" ] || p=$(ls -1 "$XBD_NODES"/*"$t"* 2>/dev/null | head -1)
+    local p=$(xbd_node_path "$t")
     [ -e "${p:-}" ] || die "找不到节点: $t"
     files=("$p")
   fi
@@ -753,10 +784,9 @@ cmd_node_check() {
   local path="$XBD_NODES/current"
   if [ -n "$t" ]; then
     if [[ "$t" =~ ^[0-9]+$ ]]; then
-      path=$(ls -1 "$XBD_NODES"/node-*.json 2>/dev/null | sed -n "${t}p")
+      path=$(xbd_node_path "$t")
     else
-      path="$XBD_NODES/$t"
-      [ -e "$path" ] || path=$(ls -1 "$XBD_NODES"/*"$t"* 2>/dev/null | head -1)
+      path=$(xbd_node_path "$t")
     fi
   fi
   [ -e "${path:-}" ] || die "找不到节点"
@@ -1849,10 +1879,9 @@ cmd_cert() {
   [ -n "$t" ] || die "用法: xbd cert <编号|文件名>   （取该节点服务端证书指纹并固定）"
   local path
   if [[ "$t" =~ ^[0-9]+$ ]]; then
-    path=$(ls -1 "$XBD_NODES"/node-*.json 2>/dev/null | sed -n "${t}p")
+    path=$(xbd_node_path "$t")
   else
-    path="$XBD_NODES/$t"
-    [ -e "$path" ] || path=$(ls -1 "$XBD_NODES"/*"$t"* 2>/dev/null | head -1)
+    path=$(xbd_node_path "$t")
   fi
   [ -e "${path:-}" ] || die "找不到节点: $t"
 
