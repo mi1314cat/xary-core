@@ -330,6 +330,22 @@ generate_ech() {
     print_ok "ECH 密钥生成成功 (serverName: $domain)"
 }
 
+
+extract_cert_domain() {
+    local crt="$1"
+    local dom=""
+    if command -v openssl >/dev/null 2>&1 && [[ -f "$crt" ]]; then
+        dom=$(openssl x509 -in "$crt" -noout -ext subjectAltName 2>/dev/null |
+            grep -oE "DNS:[^,]+" | head -1 | cut -d: -f2 | tr '[:upper:]' '[:lower:]')
+        [[ -z "$dom" ]] && dom=$(openssl x509 -in "$crt" -noout -subject 2>/dev/null |
+            grep -oE "CN *= *[^,]+" | head -1 | sed 's/.*CN *= *//' | tr -d '"' | tr '[:upper:]' '[:lower:]')
+    fi
+    if [[ -z "$dom" ]]; then
+        dom=$(basename "$crt" | sed -E 's/\.(crt|pem)$//; s/_cert$//' | sed 's/^cert-//')
+    fi
+    echo "$dom"
+}
+
 # ================================
 # 证书选择
 # 输出: CERT_FILE (PEM路径), KEY_FILE, CERT_DOMAIN (证书序列号/域名)
@@ -356,7 +372,7 @@ ask_cert() {
             printf "  证书 key 路径: " >&2; read -r domain
             KEY_FILE=$(clean_input "$domain")
             if [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
-                CERT_DOMAIN=$(basename "$CERT_FILE" .crt | sed 's/cert-//')
+                CERT_DOMAIN=$(extract_cert_domain "$CERT_FILE")
                 print_ok "使用证书: $CERT_DOMAIN"
                 return 0
             fi
@@ -453,7 +469,7 @@ ask_cert() {
                     if [[ -f "$crt" && -f "$key" ]]; then
                         CERT_FILE="$crt"
                         KEY_FILE="$key"
-                        CERT_DOMAIN=$(basename "$crt" .crt | sed 's/cert-//')
+                        CERT_DOMAIN=$(extract_cert_domain "$crt")
                         print_ok "使用证书: $CERT_DOMAIN"
                         return 0
                     fi
@@ -465,7 +481,7 @@ ask_cert() {
                     printf "  证书 key 路径: " >&2; read -r domain
                     KEY_FILE=$(clean_input "$domain")
                     if [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
-                        CERT_DOMAIN=$(basename "$CERT_FILE" .crt | sed 's/cert-//')
+                        CERT_DOMAIN=$(extract_cert_domain "$CERT_FILE")
                         print_ok "使用证书: $CERT_DOMAIN"
                         return 0
                     fi
@@ -711,13 +727,6 @@ add_config() {
         print_info "WS 路径: $WS_PATH"
     fi
 
-    # 4.9 接入域名确认 (v2 fix: 持久化 _serverName, 客户端不再依赖证书文件名)
-    printf "请输入访问域名 (客户端 server/sni 使用, 默认: %s): " "$CERT_DOMAIN" >&2
-    read -r front_domain
-    front_domain=$(clean_input "$front_domain" | tr '[:upper:]' '[:lower:]')
-    FRONT_DOMAIN=${front_domain:-$CERT_DOMAIN}
-    CERT_DOMAIN="$FRONT_DOMAIN"
-
     # 5. ML-KEM PQ 加密 (可选)
     SERVER_DEC="none"
     CLIENT_ENC=""
@@ -733,6 +742,14 @@ add_config() {
 
     # 6. 证书
     ask_cert
+
+    # 6.5 接入域名确认 (v2 fix: 在选定证书之后询问, 持久化 _serverName)
+    printf "请输入访问域名 (客户端 server/sni 使用, 默认: %s): " "$CERT_DOMAIN" >&2
+    read -r front_domain
+    front_domain=$(clean_input "$front_domain" | tr '[:upper:]' '[:lower:]')
+    FRONT_DOMAIN=${front_domain:-$CERT_DOMAIN}
+    [[ -z "$FRONT_DOMAIN" ]] && FRONT_DOMAIN=$(extract_cert_domain "$CERT_FILE")
+    CERT_DOMAIN="$FRONT_DOMAIN"
 
     # 7. ECH
     ECH_SERVER_KEYS=""
