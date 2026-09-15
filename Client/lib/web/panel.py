@@ -690,7 +690,7 @@ display:none;font-size:13px;white-space:pre-wrap}
 
 <div class="card"><h2>添加节点</h2>
   <div class="bar">
-    <input id="in-node" placeholder="vless:// / vmess:// / trojan:// / ss:// / hysteria2:// / 订阅URL">
+    <textarea id="in-node" rows="6" style="width:100%;font-family:monospace" placeholder="粘贴节点（可多个）：vless:// vmess:// trojan:// ss:// hysteria2:// / Xray JSON / Mihomo YAML（支持整段多行粘贴）/ 订阅URL"></textarea>
     <button class="pri" onclick="addNode()">导入</button>
   </div>
   <div class="hint">导入后自动做能力检查：Xray 普通模式与 Browser Dialer 分别判定。也支持 Xray JSON 与 Mihomo YAML。</div>
@@ -1198,7 +1198,7 @@ async function portsFix(btn){
 
 const addNode = () => {
   const v = $('in-node').value.trim();
-  if(!v) return say('请粘贴节点链接或订阅地址','err');
+  if(!v) return say('请粘贴节点链接、Xray JSON 或 Mihomo YAML','err');
   post('import', {uri:v}, '正在导入并做能力检查…');
 };
 async function testLatency(file, btn){
