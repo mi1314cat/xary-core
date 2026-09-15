@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import os
 import json
 import re
 import sys
@@ -628,8 +629,28 @@ def _parse_yaml_all(text: str) -> list[dict]:
         candidate = "- " + blk if not blk.startswith("- ") else blk
         try:
             out.append(parse_mihomo_yaml(candidate))
-        except Exception:
             continue
+        except Exception:
+            pass
+        # v2.1: 粘贴常带多余前导缩进（首行 "- name:" 顶格、其余字段多 2 格以上），
+        # PyYAML 报 "mapping values are not allowed here"。
+        # 方法：首行作为键行，后续行按 (自身缩进 - 第二字段行缩进 + 2) 左移，
+        # 重建为合法列表项后再解析一次。
+        lines = [l.rstrip() for l in blk.splitlines() if l.strip()]
+        if len(lines) >= 2:
+            first_c = len(lines[0]) - len(lines[0].lstrip())   # "name:" 行的当前缩进
+            shift = len(lines[1]) - len(lines[1].lstrip()) - 2  # 第二字段行相对键位的多余空格
+            if shift > 0:
+                fixed_lines = ["- " + lines[0].lstrip()]
+                for l in lines[1:]:
+                    c = len(l) - len(l.lstrip())
+                    fixed_lines.append(" " * max(0, c - shift - first_c) + l.lstrip())
+                try:
+                    out.append(parse_mihomo_yaml("\n".join(fixed_lines)))
+                    continue
+                except Exception:
+                    pass
+        continue
     return out
 
 
@@ -724,7 +745,13 @@ def main(argv: list[str]) -> int:
     if cmd == "selftest":
         return selftest()
 
-    raw = sys.stdin.read() if (len(argv) > 2 and argv[2] == "-") else (argv[2] if len(argv) > 2 else "")
+    raw = sys.stdin.read() if (len(argv) > 2 and argv[2] == "-") else ""
+    if not raw and len(argv) > 2:
+        arg = argv[2]
+        if os.path.isfile(arg):      # v2 fix: 支持 node.py multi <file> 直接读文件
+            raw = open(arg, encoding="utf-8", errors="replace").read()
+        else:
+            raw = arg
     if not raw:
         print("缺少输入", file=sys.stderr)
         return 2
