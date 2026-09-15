@@ -111,6 +111,16 @@ fi
 
 # ---------------------------------------------------------------------------
 head_ "3. 节点决定路径：不需要浏览器的节点，停掉 Chromium 也必须照常工作"
+# 这一段会临时切换生产节点。**必须**保证无论怎么退出（包括被 timeout 杀掉）
+# 都还原回原节点 —— 实测踩过：测试被 600s 超时打断，生产就停在测试用的节点上。
+_CUR_AT_START="$(readlink -f "$PREFIX/nodes/current" 2>/dev/null || true)"
+_restore_node() {
+  [ -n "${_CUR_AT_START:-}" ] && [ -e "$_CUR_AT_START" ] || return 0
+  [ "$(readlink -f "$PREFIX/nodes/current" 2>/dev/null || true)" = "$_CUR_AT_START" ] && return 0
+  echo "  （退出前还原原节点: $(basename "$_CUR_AT_START")）"
+  "$XBD" node use "$(basename "$_CUR_AT_START")" >/dev/null 2>&1 || true
+}
+trap _restore_node EXIT
 # 这条是模型成立的另一半 —— Browser Dialer 常备不能殃及普通节点。
 cur=$(readlink -f "$PREFIX/nodes/current" 2>/dev/null || true)
 [ -e "$cur" ] || { bad "没有当前节点，跳过"; cur=""; }
@@ -171,12 +181,15 @@ PY
     # 死节点会让断言失败并把锅甩给 Browser Dialer。实测踩过：env=0 明明说明
     # 进程没带 BD，报错却写「普通节点被 Browser Dialer 拖累」，纯误报。
     ok_plain=""; bad_plain=""; last_r=""
+    _tried=0
     for pn in $plain_all; do
+      _tried=$((_tried+1))
+      [ "$_tried" -le 2 ] || { echo "  （已试 2 个节点，不再继续）"; break; }
       "$XBD" node use "$(basename "$pn")" >/dev/null 2>&1
       systemctl restart xray-client.service 2>/dev/null || true; sleep 4
       systemctl stop chromium-browser-dialer.service 2>/dev/null || true; sleep 3
       ws=$(ss -H -tn 2>/dev/null | grep -c ":$(( ${CH_ADDR##*:} ))\b" || true)
-      r=$(ask_socks_retry "$LAN:$SOCKS_PORT" 2)
+      r=$(ask_socks_retry "$LAN:$SOCKS_PORT" 1)
       last_r="$r"
       if [ -n "$r" ] && [ "${ws:-0}" -eq 0 ]; then ok_plain="$(basename "$pn")"; break; fi
       bad_plain="$bad_plain $(basename "$pn")"
