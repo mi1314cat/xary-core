@@ -12,7 +12,7 @@
     nodefilter.py <解析出的节点数组.json> <lib目录> <是否保留不支持:0|1> <nodes目录>
 输出:
     stdout  = 每行一个 JSON（要导入的节点）
-    /tmp/.xbd_skipped.json = [[名字, 原因], ...] 供调用方汇总显示
+    /tmp/.xbd_skipped.json = [[名字, 原因, 已有节点路径(可能为空)], ...] 供调用方处理
 """
 from __future__ import annotations
 
@@ -50,12 +50,15 @@ def main(argv) -> int:
     m = load_compat(libdir)
 
     seen: set = set()
+    seen_path: dict = {}
     if os.path.isdir(nodesdir):
         for f in sorted(os.listdir(nodesdir)):
             if not (f.startswith("node-") and f.endswith(".json")):
                 continue
             try:
-                seen.add(ident(json.load(open(os.path.join(nodesdir, f), encoding="utf-8"))))
+                k = ident(json.load(open(os.path.join(nodesdir, f), encoding="utf-8")))
+                seen.add(k)
+                seen_path[k] = os.path.join(nodesdir, f)
             except Exception:
                 pass          # 坏文件不该阻断整批导入
 
@@ -73,7 +76,12 @@ def main(argv) -> int:
             continue
         k = ident(n)
         if k in seen:
-            skipped.append((n.get("name"), "与已有节点或本批前面的条目重复（同协议/地址/端口/凭据）"))
+            # 第三条是『已有那份』的路径：重复导入时调用方要用它去补/修指纹。
+            # 为什么必须给路径：实测用户重新导入一次以为能修好，但去重直接跳过，
+            # 那份没指纹的坏节点根本没人碰，于是『再次导入还是不行』。
+            skipped.append((n.get("name"),
+                            "与已有节点或本批前面的条目重复（同协议/地址/端口/凭据）",
+                            seen_path.get(k, "")))
             continue
         seen.add(k)
         print(json.dumps(n, ensure_ascii=False))
