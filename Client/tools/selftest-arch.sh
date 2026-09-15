@@ -119,7 +119,7 @@ BD_CUR=$(python3 "$LIB/compat.py" json "$PREFIX/nodes/current" 2>/dev/null \
          | python3 -c 'import sys,json;print(json.load(sys.stdin).get("can_use_dialer"))' 2>/dev/null || echo None)
 
 if [ -n "$cur" ] && [ "${1:-}" != "--keep-bd-node" ]; then
-  plain=$(python3 - "$LIB" "$PREFIX/nodes" <<'PY' 2>/dev/null
+  plain_all=$(python3 - "$LIB" "$PREFIX/nodes" <<'PY' 2>/dev/null
 import importlib.util, os, sys
 lib, ndir = sys.argv[1], sys.argv[2]
 spec = importlib.util.spec_from_file_location("c", os.path.join(lib, "compat.py"))
@@ -138,9 +138,10 @@ for f in sorted(os.listdir(ndir)):
     # 不能用 can_use_dialer：实测失败的 ws 节点也是 False，但它属于"必须用原生"的另一类，
     # 拿它来测"普通节点不被浏览器拖累"会得到假失败（真踩过）。
     if a.get("can_use_xray") and not a.get("protocol_may_dialer"):
-        print(p); break
+        print(p)
 PY
 )
+  plain=$(printf '%s\n' "$plain_all" | head -1)
   if [ -z "$plain" ]; then
     echo "  （没有「不需要浏览器」的节点可供切换，跳过这条）"
   else
@@ -164,18 +165,30 @@ PY
       echo "  （原节点本来就没开 Chromium，跳过自动停的断言）"
     fi
 
-    systemctl restart xray-client.service 2>/dev/null || true; sleep 5
-    systemctl stop chromium-browser-dialer.service 2>/dev/null || true; sleep 4
-    ws=$(ss -H -tn 2>/dev/null | grep -c ":$(( ${CH_ADDR##*:} ))\b" || true)
-    r=$(ask_socks_retry "$LAN:$SOCKS_PORT" 3)
-    if [ -n "$r" ] && [ "${ws:-0}" -eq 0 ]; then
-      ok "Chromium 完全停掉（0 条 WS）仍能出网: $r"
+    # 逐个「不需要浏览器」的节点试：只要**有一个**能在 Chromium 停掉时出网，
+    # 这条断言就成立（它要证明的是「普通节点不被 Browser Dialer 拖累」）。
+    # 为什么要遍历：节点池里可能有死节点，而旧写法只测文件名排第一的那个 ——
+    # 死节点会让断言失败并把锅甩给 Browser Dialer。实测踩过：env=0 明明说明
+    # 进程没带 BD，报错却写「普通节点被 Browser Dialer 拖累」，纯误报。
+    ok_plain=""; bad_plain=""; last_r=""
+    for pn in $plain_all; do
+      "$XBD" node use "$(basename "$pn")" >/dev/null 2>&1
+      systemctl restart xray-client.service 2>/dev/null || true; sleep 4
+      systemctl stop chromium-browser-dialer.service 2>/dev/null || true; sleep 3
+      ws=$(ss -H -tn 2>/dev/null | grep -c ":$(( ${CH_ADDR##*:} ))\b" || true)
+      r=$(ask_socks_retry "$LAN:$SOCKS_PORT" 2)
+      last_r="$r"
+      if [ -n "$r" ] && [ "${ws:-0}" -eq 0 ]; then ok_plain="$(basename "$pn")"; break; fi
+      bad_plain="$bad_plain $(basename "$pn")"
+      echo "  （$(basename "$pn") 在 Chromium 停掉时出不了网，继续试下一个）"
+    done
+    if [ -n "$ok_plain" ]; then
+      ok "Chromium 完全停掉（0 条 WS）仍能出网: $last_r（节点 $ok_plain）"
     else
-      bad "Chromium 停掉后出网失败（rc/出口=${r:-空}，WS=$ws）—— 普通节点被 Browser Dialer 拖累"
-      echo "    诊断: 服务状态 xray=$(systemctl is-active xray-client.service) chromium=$(systemctl is-active chromium-browser-dialer.service)"
-      echo "    诊断: PID=$(systemctl show -p MainPID --value xray-client.service) 节点=$(readlink -f "$PREFIX/nodes/current" | xargs -r basename)"
-      echo "    诊断: $(curl -sS --max-time 25 --socks5-hostname "$LAN:$SOCKS_PORT" "$PROBE" 2>&1 | head -2)"
-      echo "    诊断: env=$(tr '\0' '\n' < "/proc/$(systemctl show -p MainPID --value xray-client.service)/environ" 2>/dev/null | grep -c '^XRAY_BROWSER_DIALER=' || echo 0)"
+      warn_ "所有「不需要浏览器」的节点都出不了网（$bad_plain）"
+      echo "       这是节点/服务端的问题，不是 Browser Dialer 拖累 —— 进程未带 BD"
+      echo "       （env=$(tr '\0' '\n' < "/proc/$(systemctl show -p MainPID --value xray-client.service)/environ" 2>/dev/null | grep -c '^XRAY_BROWSER_DIALER=' || echo 0)）。"
+      echo "       先用 xbd node list / 逐个切换确认哪个节点还活着，删掉死节点后重跑本项。"
     fi
 
     # 还原：切回原节点。若原节点需要浏览器，xbd node use 应自动把它拉起来。
