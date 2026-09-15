@@ -389,6 +389,7 @@ print(s[:40] or "node")' "$tmp")
     break
   done
   install -m 0644 "$tmp" "$dest"; rm -f "$tmp"
+  _xbd_autopin_cert "$dest"   # v2.2: 导入即固定证书指纹，免除手动 xbd cert
 
   local caps
   # 注意：compat.py 在"两种模式都不可用"时退出码为 1（这是有效结论，不是失败），
@@ -1786,6 +1787,59 @@ EOF
   printf '  %-28s %s\n' "环境变量" "$envf"
   info ""
   info "服务器上直接看: cat $links"
+}
+
+# v2.2: 导入节点后自动探测并固定服务端证书指纹。
+# 背景：Xray 26.x 移除了 allowInsecure（mihomo 的 skip-cert-verify），
+# 自签/老格式证书的节点导入即“连不上”。以前要手动执行 xbd cert <编号>，
+# 现在导入时自动做掉 —— 加进来就能用。
+# 失败不阻断导入（warn 后继续），因为“能用”还取决于服务端是否在线。
+_xbd_autopin_cert() {
+  local path="$1"
+  [ -f "$path" ] || return 0
+  local need
+  need=$(python3 - "$path" <<'PYIN'
+import json, sys
+d = json.load(open(sys.argv[1]))
+print(1 if (d.get("allow_insecure") or d.get("skip_cert_verify")) and not d.get("pinned_cert_sha256") else 0)
+PYIN
+)
+  [ "$need" = "1" ] || return 0
+
+  local addr port sni
+  addr=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("address",""))' "$path")
+  port=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("port","443"))' "$path")
+  sni=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d.get("sni") or d.get("address",""))' "$path")
+
+  step "自动探测服务端证书（替代已移除的 allowInsecure）"
+  info "  目标: [$addr]:$port  SNI=$sni"
+  if ! command -v go >/dev/null 2>&1; then
+    warn "未能自动固定证书：机器缺少 go 工具链（安装 golang-go 后可手动 xbd cert <编号> 重试）"
+    return 0
+  fi
+  local probe="$XBD_DIST/tools/certprobe"
+  [ -d "$probe" ] || { warn "缺少工具目录 $probe，自动固定跳过"; return 0; }
+
+  local out fp
+  if ! out=$(cd "$probe" && GOFLAGS=-mod=mod https_proxy="${XBD_HTTP_PROXY:-}" go run . "$addr" "$port" "$sni" 2>&1); then
+    warn "证书探测失败（节点可能离线/非TLS）；可手动 xbd cert <编号> 重试"
+    return 0
+  fi
+  printf '%s
+' "$out" | sed 's/^/  /'
+  fp=$(printf '%s' "$out" | grep -oE '[0-9a-f]{64}' | head -1)
+  [ -n "$fp" ] || { warn "未取到证书指纹；可手动 xbd cert <编号> 重试"; return 0; }
+
+  python3 - "$path" "$fp" <<'PYIN'
+import json, sys
+p, fp = sys.argv[1], sys.argv[2]
+d = json.load(open(p))
+d["pinned_cert_sha256"] = fp
+json.dump(d, open(p, "w"), ensure_ascii=False, indent=2)
+print(f"  已自动固定 pinned_cert_sha256: {fp[:32]}...")
+PYIN
+  info "  导入即用，无需手动固定（服务端换签后需重新固定）"
+  return 0
 }
 
 # 取服务端证书指纹并写进节点（自签证书节点的正确解法）
