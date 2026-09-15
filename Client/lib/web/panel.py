@@ -171,7 +171,9 @@ def compat_of(path):
 
 # ------------------------------------------------------------------- 动作 ----
 def act_import(uri):
-    rc, out, err = sh([os.path.join(PREFIX, "bin", "xbd"), "node", "add", uri], timeout=120)
+    # 超时给 300 秒：导入自签证书节点时会顺手编译证书探针（go build quic-go），
+    # 冷构建实测 114 秒 —— 原来卡在 120 秒，首次导入经常被杀在半路。
+    rc, out, err = sh([os.path.join(PREFIX, "bin", "xbd"), "node", "add", uri], timeout=300)
     return rc == 0, (out or err)
 
 
