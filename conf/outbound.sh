@@ -22,6 +22,7 @@ BLUE="\e[34m"
 MAGENTA="\e[35m"
 CYAN="\e[36m"
 WHITE="\e[97m"
+GRAY="\e[90m"
 BOLD="\e[1m"
 RESET="\e[0m"
 
@@ -30,14 +31,25 @@ RESET="\e[0m"
 # ================================
 print_info()  { printf "${CYAN}[Info]${RESET} %s\n" "$1" >&2; }
 print_ok()    { printf "${GREEN}[OK]${RESET}  %s\n" "$1" >&2; }
+print_warn()  { printf "${YELLOW}[Warn]${RESET} %s\n" "$1" >&2; }
 print_error() { printf "${RED}[Error]${RESET} %s\n" "$1" >&2; }
 
 print_title() {
     printf "${MAGENTA}${BOLD}" >&2
     printf "╔══════════════════════════════════════════════╗\n" >&2
     printf "║ %-42s ║\n" "$1" >&2
-    printf "╚══════════════════════════════════════════════╝\n" >&2
+    printf "╚══════════════════════════════════════════════╝\n\n" >&2
     printf "${RESET}" >&2
+}
+
+# ---------- 统一菜单控件 ----------
+menu_item() { printf "  ${WHITE}${BOLD}%2s)${RESET} %s\n" "$1" "$2" >&2; }
+menu_hint() { printf "  ${GRAY}%s${RESET}\n" "$1" >&2; }
+menu_quit() { printf "  ${GRAY}${BOLD} 0)${RESET} ${GRAY}%s${RESET}\n" "${1:-返回上级}" >&2; }
+menu_ask() { # $1=提示语 -> 输出到stdout（接收返回值）
+    printf "  ${CYAN}${BOLD}▸${RESET} %s " "$1" >&2
+    local v; read -r v
+    clean_input "$v"
 }
 
 # ================================
@@ -204,13 +216,33 @@ parse_hysteria2() {
     userinfo=${base%%@*}; hostport=${base##*@}
     OB_NAME=${frag:-Hysteria2}
     OB_PASS=$userinfo
-    OB_ADDR=${hostport%%:*}
-    OB_PORT=${hostport##*:}
-    [[ -z "$OB_PORT" || "$OB_PORT" == "$OB_ADDR" ]] && OB_PORT=443
-    OB_SNI=$(get_param "$qs" sni); [[ -z "$OB_SNI" ]] && OB_SNI=$OB_ADDR
+    # 支持 [IPv6]:port 形式（分享链接里的 v6 节点地址）
+    if [[ "${hostport:0:1}" == "[" && "$hostport" == *"]"* ]]; then
+        OB_ADDR="${hostport%%]:*}"
+        OB_ADDR="${OB_ADDR#[}"          # 去掉开头的 [
+        OB_PORT="${hostport##*]}"       # 剩下 ":port"
+        OB_PORT="${OB_PORT#:}"
+        [[ -z "$OB_PORT" || "$OB_ADDR" == "$OB_PORT" ]] && OB_PORT=443
+    else
+        OB_ADDR=${hostport%%:*}
+        OB_PORT=${hostport##*:}
+        [[ -z "$OB_PORT" || "$OB_PORT" == "$OB_ADDR" ]] && OB_PORT=443
+    fi
+    OB_SNI=$(get_param "$qs" sni); [[ -z "$OB_SNI" ]] && OB_SNI=$(get_param "$qs" peer)
+    [[ -z "$OB_SNI" ]] && OB_SNI=$OB_ADDR
     OB_PIN=$(get_param "$qs" pin)
     [[ -z "$OB_PIN" ]] && OB_PIN=$(get_param "$qs" pinnedPeerCertSha256)
     [[ -z "$OB_PIN" ]] && OB_PIN=$(get_param "$qs" sha256)
+    # 老版分享链接带 hpkp=AA:BB:..:FF 的证书指纹（去冒号转小写 hex 即可）
+    if [[ -z "$OB_PIN" ]]; then
+        local hpkp
+        hpkp=$(get_param "$qs" hpkp)
+        if [[ -n "$hpkp" ]]; then
+            OB_PIN=$(echo "$hpkp" | tr -d ':' | tr 'A-F' 'a-f')
+            [[ "$OB_PIN" =~ ^[0-9a-f]{64}$ ]] && print_ok "已从 hpkp 提取证书指纹"
+        fi
+    fi
+    [[ -n "$OB_PIN" ]] && ! [[ "$OB_PIN" =~ ^[0-9a-f]{64}$ ]] && OB_PIN=""
     OB_POOL=""; OB_SEND=""
 }
 
@@ -461,9 +493,42 @@ hy2_json() { # $1=tag
           outbounds: [{protocol:"hysteria", tag:$tag,
                        settings:{version:2, address:$addr, port:($port|tonumber)},
                        streamSettings:{network:"hysteria", security:"tls",
-                         tlsSettings:{serverName:$sni, pinnedPeerCertSha256:$pin},
+                         tlsSettings:{serverName:$sni, alpn:["h3"], pinnedPeerCertSha256:$pin},
                          hysteriaSettings:{version:2, auth:$pass}}}
                       + (if $send != "" then {sendThrough:$send} else {} end)]}'
+}
+
+# --- Hysteria2 pin 自动补全 --------------------------------------------------
+# Xray 26.x 已移除 outbound 的 allowInsecure：
+#   hy2 outbound 无法校验自签/错误域名证书链 -> QUIC 建链后静默超时
+#   ("RoundTrip err > timeout: no recent network activity")
+# 因此 pin 必填。这里尽可能自动获取：
+#   1) 目标 sni 与本机 Hysteria2 证书目录匹配 -> 直接算 sha256
+#   2) 其余情况引导用户给出 pin 或 pem 文件（可用 openssl x509 ... | sha256sum）
+hy2_autopin() { # $1=addr $2=sni ; 直接修改全局 OB_PIN
+    local addr="$1" sni="${2:-$1}"
+    local cert="$BASE_DIR/Hysteria2/cert-$sni.crt"
+    [[ -f "$cert" ]] || cert="$BASE_DIR/Hysteria2/cert-$addr.crt"
+    if [[ -f "$cert" ]]; then
+        local h
+        h=$(openssl x509 -in "$cert" -outform der 2>/dev/null | sha256sum | awk '{print tolower($1)}')
+        if [[ -n "$h" ]]; then
+            OB_PIN="$h"
+            print_ok "自动取到本机证书指纹: $h"
+            return 0
+        fi
+    fi
+    print_warn "hysteria2 出站必须提供 pinnedPeerCertSha256 (Xray 26.x 已移除 allowInsecure,"
+    print_info "不填会导致 QUIC 握手后静默无响应: RoundTrip err > timeout: no recent network activity)"
+    print_info "获取方式：优先使用带 pin= 的分享链接；或在该 VPS 上执行:"
+    print_info "  openssl x509 -in <cert路径> -outform der | sha256sum | awk '{print tolower(\$1)}'"
+    while :; do
+        OB_PIN=$(safe_read "证书 SHA256(直接回车=放弃添加)" "")
+        [[ -z "$OB_PIN" ]] && { print_error "无 pin 已放弃写入，未生成节点文件"; return 1; }
+        OB_PIN=$(echo "$OB_PIN" | tr 'A-F' 'a-f')
+        [[ "$OB_PIN" =~ ^[0-9a-f]{64}$ ]] && return 0
+        print_error "格式无效（应为 64 位 hex），请重试"
+    done
 }
 
 # Freedom 出站（本机直连，可指定源IPv4/IPv6）
@@ -495,6 +560,106 @@ write_outbound() { # $1=proto
     [[ -n "$json" ]] || { print_error "JSON 生成失败"; return 1; }
     echo "$json" | jq . > "$CONF_DIR/$OB_PREFIX-$next.json"
     print_ok "已写入 $CONF_DIR/$OB_PREFIX-$next.json (tag=$tag)"
+
+    # ---- 加入后自检（默认 3 次；全失败则自动回退并禁用该出站）----
+    if [[ "${OUTBOUND_SELFTEST:-1}" == "1" ]]; then
+        selftest_outbound "$CONF_DIR/$OB_PREFIX-$next.json" "$tag"
+    fi
+}
+
+# ============ 入站→出站 一键绑定（供自检成功后自动调用） ================
+bind_inbound_to_tag() { # $1=inboundTag $2=outboundTag
+    local inbound="$1" tag="$2"
+    [[ -z "$inbound" || -z "$tag" ]] && return 1
+    if [[ -f "$ROUTING_FILE" ]]; then
+        jq --arg k "$inbound" --arg v "$tag" '._meta.bindings[$k]=$v' "$ROUTING_FILE" > "${ROUTING_FILE}.tmp" \
+            && mv "${ROUTING_FILE}.tmp" "$ROUTING_FILE"
+    else
+        jq -n --arg k "$inbound" --arg v "$tag" '{_meta:{bindings:{($k):$v}}}' > "$ROUTING_FILE"
+    fi
+    write_routing || return 1
+    print_ok "$inbound → $tag (路由已写入并持久化)"
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-active xrayls >/dev/null 2>&1; then
+        systemctl restart xrayls && print_ok "xrayls 已重启，新绑定即刻生效"
+    fi
+}
+
+# ============ 出站自检 + 失败自动回退 ================
+# 用 xrayls 单实例 + socks 入站直连该出站，连续 3 次请求
+# https://www.gstatic.com/generate_204；全部失败则：
+#   1) 把该出站文件移入 $CONF_DIR/.quarantine/（不再加载）
+#   2) 路由中所有指向它的入站绑定改回默认出站(direct)
+#   3) 重启 xrayls 使路由生效
+selftest_outbound() { # $1=out_file_path $2=tag
+    local file="$1" tag="$2" port try ok=0 code
+    [[ "${XRAYLS_BIN:-}" == "" ]] && XRAYLS_BIN=$(find "$CONF_DIR/.." -maxdepth 2 -type f -name xrayls 2>/dev/null | head -1)
+    [[ -z "$XRAYLS_BIN" || ! -x "$XRAYLS_BIN" ]] && { print_warn "找不到 xrayls 可执行文件，跳过自检"; return 0; }
+    for try in 1 2 3; do
+        port=$((10321+RANDOM%200))
+        python3 - "$file" tag "$port" <<PY
+import json,sys
+fin,tag,port=sys.argv[1],sys.argv[2],int(sys.argv[3])
+o=json.load(open(fin))["outbounds"][0]
+json.dump({"inbounds":[{"port":port,"protocol":"socks","listen":"127.0.0.1"}],
+           "outbounds":[o],"log":{"loglevel":"error"}}, open("/tmp/.selftest-cfg.json","w"))
+PY
+        ( timeout 8 "$XRAYLS_BIN" run -c /tmp/.selftest-cfg.json 2>/dev/null & echo $! > /tmp/.selftest-pid )
+        sleep 2
+        code=$(curl -m 6 -x socks5h://127.0.0.1:$port -s -o /dev/null -w "%{http_code}" https://www.gstatic.com/generate_204 2>/dev/null)
+        kill "$(cat /tmp/.selftest-pid)" 2>/dev/null; sleep 1
+        if [[ "$code" != "200" && "$code" != "204" ]]; then
+            print_warn "自检第 $try/3 次: HTTP=$code (未通过)"
+        else
+            print_ok "自检第 $try/3 次: HTTP=$code 通过"
+            ok=$((ok+1)); break
+        fi
+    done
+    if (( ok > 0 )); then
+        print_ok "自检通过 ($ok/1)，出站已保留"
+        # 自动绑定流程：提供一键绑定机会（回车跳过则保持现路由）
+        if [[ "${OUTBOUND_AUTOBIND:-1}" == "1" ]]; then
+            local -a ins
+            local f2 itag
+            for f2 in "$CONF_DIR"/*.json; do
+                [[ "$(basename "$f2")" == "$OB_PREFIX-"* || "$(basename "$f2")" == "out-routing.json" ]] && continue
+                itag=$(jq -r '.inbounds[0].tag // empty' "$f2" 2>/dev/null)
+                [[ -n "$itag" ]] && ins+=("$itag")
+            done
+            if ((${#ins[@]} > 0)); then
+                echo "自检通过，是否把某个入站绑定到此出站？（直接回车=跳过绑定，沿用当前路由）" >&2
+                local i
+                for i in "${!ins[@]}"; do printf "  %d) %s\n" $((i+1)) "${ins[$i]}" >&2; done
+                printf "输入序号 (回车=跳过): " >&2
+                local sel; read -r sel; sel=$(clean_input "$sel")
+                if [[ "$sel" =~ ^[0-9]+$ ]] && (( sel >= 1 && sel <= ${#ins[@]} )); then
+                    bind_inbound_to_tag "${ins[$((sel-1))]}" "$tag"
+                else
+                    print_info "跳过绑定，请稍后用菜单 7 手工绑定"
+                fi
+            fi
+        fi
+        return 0
+    fi
+    print_warn "N 次自检全部失败 → 自动回退到默认出站并禁用此出站"
+    local qdir="$CONF_DIR/.quarantine"
+    mkdir -p "$qdir"
+    mv "$file" "$qdir/$(basename "$file")" 2>/dev/null
+    print_ok "出站已移出: $CONF_DIR/.quarantine/$(basename "$file") （以后确认可用再手动移回）"
+    # 路由内所有引用此 tag 的绑定改回默认
+    if [[ -f "$ROUTING_FILE" ]]; then
+        jq --arg tag "$tag" '._meta.bindings = (._meta.bindings // {} | to_entries \
+            | map(.value = (if .value == $tag then "direct" else .value end)) \
+            | map(.key as $k | {(.key): .value}) | add // {})' \
+            "$ROUTING_FILE" > "${ROUTING_FILE}.tmp" 2>/dev/null && mv "${ROUTING_FILE}.tmp" "$ROUTING_FILE"
+        rebuild_routing_rules "$ROUTING_FILE" | jq '.routing' >/tmp/newr.json 2>/dev/null
+        if jq -e '.routing.rules' /dev/null >/dev/null 2>&1 </dev/null && [[ -s /tmp/newr.json ]]; then
+            jq --argjson nr "$(cat /tmp/newr.json 2>/dev/null)" '.routing=$nr' "$ROUTING_FILE" > "${ROUTING_FILE}.tmp" && mv "${ROUTING_FILE}.tmp" "$ROUTING_FILE"
+        fi
+        rm -f /tmp/newr.json
+    fi
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-active xrayls >/dev/null 2>&1; then
+        systemctl restart xrayls && print_ok "xrayls 已重启，路由回到默认出站"
+    fi
 }
 
 # ================================
@@ -707,8 +872,10 @@ read_bindings() {
 rebuild_routing_rules() {
     local file="$1"
     # 分流规则数组（split.sh 管理的，含全局规则和按入站规则）
+    # 兼容旧数据：文件缺失/损坏时按空数组处理（避免 --argjson 收到空串导致整条路由被清空写入）
     local splits
     splits=$(jq -c '._meta.splitRules // []' "$file" 2>/dev/null)
+    [[ "$splits" == "null" || -z "$splits" ]] && splits='[]'
     # 绑定表
     local -A B=()
     local entry k v
@@ -731,9 +898,29 @@ rebuild_routing_rules() {
 }
 
 # 写入绑定表并重新生成 routing.rules（保留 splitRules 与 dualStack 元信息）
+# ============ 默认出站（direct）自动实体化 ================
+# 以前的坑：DEFAULT_OUTBOUND="direct" 只是个"字面量"，conf 里并不存在 tag=direct 的出站。
+# 用户在菜单7绑定到"默认出站"后，路由规则写着 outboundTag:"direct"，
+# 而 xrayls 的合并结果里没有这个出站 -> 木有效果，"保存重启仍然连不上"。
+# 修复：写路由前保证 tag=direct 的 freedom 出站真实存在。
+ensure_direct_outbound() {
+    local f="$CONF_DIR/out-direct.json"
+    [[ -f "$f" ]] && return 0
+    mkdir -p "$CONF_DIR" 2>/dev/null
+    jq -n '{_meta:{name:"默认直连", proto:"freedom"},
+            outbounds:[{protocol:"freedom", tag:"direct", settings:{domainStrategy:"UseIP"}}]}' > "$f" 2>/dev/null
+    print_ok "已自动创建默认出站文件: $f (tag=direct)"
+}
+
 write_routing() {
     local newmeta
+    ensure_direct_outbound
     newmeta=$(rebuild_routing_rules "$ROUTING_FILE")
+    # 保护：重组结果若为空说明 jq 阶段出错，直接中止，绝不把 0 字节内容覆盖回路由文件
+    if [[ -z "$newmeta" ]] || ! echo "$newmeta" | jq -e '.routing.rules' >/dev/null 2>&1; then
+        print_error "路由重组失败（routing 未写入，原文件保持不动），请检查 splitRules/bindings 数据"
+        return 1
+    fi
     if [[ -f "$ROUTING_FILE" ]]; then
         # 保留 _meta 其余字段（bindings/splitRules/dualStack），仅替换 routing
         jq --argjson nr "$(jq '.routing' <<< "$newmeta")" \
@@ -753,17 +940,16 @@ write_routing() {
 # ================================
 add_outbound() {
     print_title "新增出站"
-    echo "请选择协议：" >&2
-    echo "  1) VLESS" >&2
-    echo "  2) VMess" >&2
-    echo "  3) Trojan" >&2
-    echo "  4) Shadowsocks" >&2
-    echo "  5) Hysteria2" >&2
-    echo "  6) Freedom（本机直连 / 指定源IP）" >&2
-    echo "  7) 导入分享链接" >&2
-    echo "  0) 返回" >&2
-    read c
-    c=$(clean_input "$c")
+    menu_item 1 "VLESS"
+    menu_item 2 "VMess"
+    menu_item 3 "Trojan"
+    menu_item 4 "Shadowsocks"
+    menu_item 5 "Hysteria2"
+    menu_item 6 "Freedom（本机直连 / 指定源IP）"
+    menu_item 7 "导入分享链接"
+    menu_quit
+    print_info "请选择协议"
+    local c; c=$(menu_ask "选择")
     case "$c" in
         1) wizard_vless ;;
         2) wizard_vmess ;;
@@ -888,22 +1074,22 @@ wizard_ss() {
 }
 
 wizard_hy2() {
-    echo "Hysteria2 出站添加方式：" >&2
-    echo "  1) 粘贴分享链接 (hysteria2://...)" >&2
-    echo "  2) 手动填写" >&2
-    local m
-    read m; m=$(clean_input "$m")
+    print_title "新增 Hysteria2 出站"
+    menu_item 1 "从分享链接导入（推荐）"
+    menu_item 2 "手动填写"
+    menu_quit
+    local m; m=$(menu_ask "选择导入方式")
     if [[ "$m" == "1" ]]; then
         local link
-        link=$(safe_read "粘贴 hysteria2:// 链接" "")
+        link=$(menu_ask "粘贴 hysteria2:// 分享链接")
         [[ -z "$link" ]] && { print_error "链接不能为空"; return 1; }
         parse_hysteria2 "$link"
         OB_PIN=${OB_PIN:-}
         if [[ -z "$OB_PIN" ]]; then
-            print_info "链接中无证书hash(pin)。没有 pin 时 xrayls 会校验证书，自签/CN-only证书将被拒。"
-            print_info "可稍后在 split.sh/面板里补，或手动输入节点证书 SHA256:"
-            OB_PIN=$(safe_read "节点证书 SHA256(可空)" "")
+            print_info "链接中无证书hash(pin)。"
+            hy2_autopin "$OB_ADDR" "$OB_SNI" || return 1
         fi
+        [[ ! "$OB_PIN" =~ ^[0-9a-f]{64}$ ]] && { print_error "pin 格式无效，请重试"; return 1; }
     else
         OB_NAME=$(safe_read "显示名称" "")
         OB_ADDR=$(safe_read "服务器 IP/域名" "")
@@ -912,9 +1098,8 @@ wizard_hy2() {
         OB_PASS=$(safe_read "密钥/密码" "")
         [[ -z "$OB_PASS" ]] && { print_error "密钥不能为空"; return 1; }
         OB_SNI=$(safe_read "SNI(默认=地址)" "$OB_ADDR")
-        print_info "证书校验: xrayls 要求 pinnedPeerCertSha256 (allowInsecure 已移除)。"
-        print_info "获取节点证书 hash 示例: openssl s_client -connect <地址>:<端口> ... 或留空由服务端验证"
-        OB_PIN=$(safe_read "节点证书 SHA256(可空)" "")
+        OB_PIN=""
+        hy2_autopin "$OB_ADDR" "$OB_SNI" || return 1
     fi
     OB_POOL=""; OB_SEND=""
     [[ -z "$OB_SNI" ]] && OB_SNI=$OB_ADDR
@@ -1862,26 +2047,22 @@ diag_landing() {
 main_menu() {
     while true; do
         print_title "Xray 出站管理面板"
-
-        echo "1) 查看出站" >&2
-        echo "2) 新增出站" >&2
-        echo "3) 修改出站" >&2
-        echo "4) 删除出站" >&2
-        echo "5) 复制出站" >&2
-        echo "6) 测试出站" >&2
-        echo "7) 入站→出站绑定管理" >&2
-        echo "8) 查看入站→出站映射" >&2
-        echo "9) 校验配置 / 重启服务" >&2
-        echo "10) IPv6 地址池管理" >&2
-        echo "11) 落地自检（IPv6出口/MTU/配置体检）" >&2
-        echo "12) 一键更换落地 IPv6（用完即换）" >&2
-        echo "13) 批量生成落地 IPv6（备用池）" >&2
-        echo "14) 双栈 v4 域名名单管理" >&2
-        echo "0) 退出" >&2
-
-        printf "请选择: " >&2
-        read c
-        c=$(clean_input "$c")
+        menu_item 1  "查看出站"
+        menu_item 2  "新增出站"
+        menu_item 3  "修改出站"
+        menu_item 4  "删除出站"
+        menu_item 5  "复制出站"
+        menu_item 6  "测试出站"
+        menu_item 7  "入站→出站绑定管理"
+        menu_item 8  "查看入站→出站映射"
+        menu_item 9  "校验配置 / 重启服务"
+        menu_item 10 "IPv6 地址池管理"
+        menu_item 11 "落地自检（IPv6出口/MTU/配置体检）"
+        menu_item 12 "一键更换落地 IPv6（用完即换）"
+        menu_item 13 "批量生成落地 IPv6（备用池）"
+        menu_item 14 "双栈 v4 域名名单管理"
+        menu_quit "退出"
+        local c; c=$(menu_ask "请输入菜单序号")
 
         case $c in
             1) list_outbounds ;;
@@ -1895,9 +2076,7 @@ main_menu() {
             9)
                 print_title "校验 / 重启"
                 validate_config
-                printf "重启 xrayls 服务? [y/N]: " >&2
-                read rr
-                rr=$(clean_input "$rr")
+                local rr; rr=$(menu_ask "重启 xrayls 服务? [y/N]")
                 [[ "$rr" == "y" || "$rr" == "Y" ]] && restart_xrayls
                 ;;
             10) pool_menu ;;
@@ -1909,7 +2088,7 @@ main_menu() {
             *) print_error "无效选项" ;;
         esac
 
-        printf "按回车继续..." >&2
+        printf "  ${GRAY}(按回车继续)${RESET}\n" >&2
         read
     done
 }
