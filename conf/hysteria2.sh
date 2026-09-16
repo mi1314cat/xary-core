@@ -324,17 +324,45 @@ cat <<EOF > "$file"
 EOF
 
     # 生成链接
-link="hysteria2://$uuid@$server_ip:$hysteria_port?sni=$domain&insecure=1&alpn=h3#hysteria-$index"
+# 新版格式：自动携带证书指纹 pin=（Xray 26.x 已移除 allowInsecure，无 pin 时
+# 出站侧会 QUIC 握手静默超时），并保留 hpkp= 兼容老识别（冒号 hex）
+cert_pin=$(openssl x509 -in "$CERT_FILE" -outform der 2>/dev/null | sha256sum | awk '{print tolower($1)}')
+hpkp_pin=$(echo "$cert_pin" | fold -w2 | paste -sd: - | tr 'a-f' 'A-F')
+if [[ -n "$cert_pin" ]]; then
+    link="hysteria2://$uuid@$server_ip:$hysteria_port?sni=$domain&insecure=1&allowInsecure=1&alpn=h3&obfs=none&upmbps=50&downmbps=200&pin=$cert_pin&hpkp=$hpkp_pin#hysteria-$index"
+else
+    # 极端情况: openssl 不可用/证书缺失, 回退旧格式
+    link="hysteria2://$uuid@$server_ip:$hysteria_port?sni=$domain&insecure=1&allowInsecure=1&alpn=h3&obfs=none&upmbps=50&downmbps=200#hysteria-$index"
+fi
 
-# 确保目录存在
+# 确保输出目录存在
 mkdir -p /root/catmi/xray/out
 
-# 追加写入文件
+# 追加写入链接文件
 echo "$link" >> /root/catmi/xray/out/hysteria.txt
 
+# --- 客户端配置 YAML（与 mihomo--core 同风格, X-ray/M-kernel 客户端均可一键导入） ---
+CLIENT_FILE="/root/catmi/xray/out/hy2_client-$index.yaml"
+cat > "$CLIENT_FILE" <<EOF
+proxies:
+  - name: Hysteria2-$index
+    type: hysteria2
+    server: $server_ip
+    port: $hysteria_port
+    up: 50 Mbps
+    down: 200 Mbps
+    password: $uuid
+    sni: $domain
+    skip-cert-verify: true
+    alpn:
+      - h3
+EOF
+echo "$link" > "/root/catmi/xray/out/hy2_share-$index.txt"
 
     print_ok "配置生成成功"
-    echo -e "编号: $index\n端口: $hysteria_port\nUUID: $uuid\n域名: $domain\n监听: $listen_ip\n配置文件: $file" >&2
+    echo -e "编号: $index\n端口: $hysteria_port\nUUID: $uuid\n域名: $domain\n监听: $listen_ip\n配置文件: $file\n客户端文件: $CLIENT_FILE\n分享链接: /root/catmi/xray/out/hy2_share-$index.txt" >&2
+    echo -e "\n===== 客户端 YAML =====\n"
+    cat "$CLIENT_FILE"
     echo -e "\n客户端链接:\n$link" >&2
 }
 # ================================
