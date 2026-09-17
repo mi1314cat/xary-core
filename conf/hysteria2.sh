@@ -492,18 +492,57 @@ ask_port_hopping() {
         *) return 0 ;;
     esac
 
-    printf "跳跃范围 (默认: 30000-31000): " >&2
-    read -r range
-    range=$(clean_input "$range")
-    [[ -z "$range" ]] && range="30000-31000"
+    # 防呆: 收集本机所有已监听 UDP 端口
+    local used_ports
+    used_ports=$(ss -ulHn 2>/dev/null | awk '{print $4}' | grep -oE '[0-9]+$' | sort -un)
 
-    if ! echo "$range" | grep -qE '^[0-9]+-[0-9]+$'; then
-        print_error "范围格式应为 起始-结束, 例如 30000-31000"
-        return 0
-    fi
-    start="${range%-*}"; end="${range#*-}"
-    (( start >= 1 && start <= end && end <= 65535 )) || {
-        print_error "范围不合法: $range"; return 0; }
+    while true; do
+        printf "跳跃范围 (默认: 30000-31000): " >&2
+        if ! read -r range; then echo >&2; return 1; fi   # EOF 退出
+        range=$(clean_input "$range")
+        [[ -z "$range" ]] && range="30000-31000"
+
+        # ---- 防呆 1: 格式 ----
+        if ! echo "$range" | grep -qE '^[0-9]+-[0-9]+$'; then
+            print_error "范围格式应为 起始-结束, 例如 30000-31000, 请重新输入"
+            continue
+        fi
+        start="${range%-*}"; end="${range#*-}"
+
+        # ---- 防呆 2: 数值合法性 (避开系统端口 <1024) ----
+        (( start >= 1024 && start <= end && end <= 65535 )) || {
+            print_error "范围不合法: $range (要求 1024 ≤ 起始 ≤ 结束 ≤ 65535)"
+            continue
+        }
+
+        # ---- 防呆 3: 跨度提示 ----
+        (( end - start > 10000 )) && \
+            print_warn "跨度 $((end-start)) 个端口偏大, 建议缩小到 1-2 千 (防火墙规则性能)"
+
+        # ---- 防呆 4: 冲突检测 (范围内端口已被本机 UDP 服务监听) ----
+        local conflicts
+        conflicts=$(seq "$start" "$end" | grep -xF -f <(echo "$used_ports") | head -5 | paste -sd' ')
+        if [[ -n "$conflicts" ]]; then
+            print_error "范围 $range 与已监听 UDP 服务冲突: $conflicts"
+            print_warn "请换一段范围 (冲突端口不会重定向, 尝试继续会完全丢包)"
+            continue
+        fi
+
+        # ---- 防呆 5: 已存在相同的跳跃规则 ----
+        if iptables -t nat -S PREROUTING 2>/dev/null | grep -q "dport $start:$end"; then
+            print_error "PREROUTING 已存在 $start:$end 的 REDIRECT 规则 (重复添加会覆盖)"
+            print_warn "请先模拟: iptables -t nat -D PREROUTING ... (或换范围)"
+            continue
+        fi
+
+        # ---- 防呆 6: 包含本配置自身端口 (REDIRECT 到自身, 无实际意义) ----
+        if (( start <= $1 && $1 <= end )); then
+            print_warn "范围 $range 包含本配置端口 $1 (REDIRECT 回自身会空转)"
+            continue
+        fi
+
+        break
+    done
 
     HOP_RANGE="$range"
 
@@ -736,8 +775,11 @@ delete_config() {
     printf "输入要删除的编号: " >&2
     read num
     num=$(clean_input "$num")
+    local pad
+    pad=$(printf "%02d" "$num" 2>/dev/null)
+    [[ -z "$pad" ]] && { print_error "编号必须是数字"; return 1; }
 
-    local file="$CONF_DIR/$PROTO-$(printf "%02d" $num).json"
+    local file="$CONF_DIR/$PROTO-$pad.json"
 
     if [[ -f "$file" ]]; then
         local cert
@@ -756,16 +798,16 @@ delete_config() {
         fi
 
         # 撤销端口跳跃规则
-        if [[ -f "$OUT_DIR/hy2_meta-$num.json" ]]; then
+        if [[ -f "$OUT_DIR/hy2_meta-$pad.json" ]]; then
             local hop
-            hop=$(jq -r '.hop_range // empty' "$OUT_DIR/hy2_meta-$num.json")
+            hop=$(jq -r '.hop_range // empty' "$OUT_DIR/hy2_meta-$pad.json")
             local p
-            p=$(jq -r '.port // empty' "$OUT_DIR/hy2_meta-$num.json")
+            p=$(jq -r '.port // empty' "$OUT_DIR/hy2_meta-$pad.json")
             remove_port_hopping "$hop" "$p"
         fi
 
         # 同步删除客户端产物
-        rm -f "$OUT_DIR/hy2_client-$num.yaml" "$OUT_DIR/hy2_client-$num.xray.json" "$OUT_DIR/hy2_share-$num.txt" "$OUT_DIR/hy2_meta-$num.json"
+        rm -f "$OUT_DIR/hy2_client-$pad.yaml" "$OUT_DIR/hy2_client-$pad.xray.json" "$OUT_DIR/hy2_share-$pad.txt" "$OUT_DIR/hy2_meta-$pad.json"
     else
         print_error "编号不存在"
     fi
