@@ -36,32 +36,30 @@ ${GREEN}xrayls 管理脚本${PLAIN}
 ${GREEN}1.${PLAIN} 安装/更新 xray（自动检测版本：旧版升级、最新则跳过）
 ${GREEN}2.${PLAIN} 卸载 xray
 ${GREEN}3.${PLAIN} 查看客户端配置
-${GREEN}4.${PLAIN} 修改配置
-${GREEN}5.${PLAIN} 查询服务状态
-${GREEN}6.${PLAIN} 添加节点
-${GREEN}7.${PLAIN} 校验配置/重启服务
-${GREEN}8.${PLAIN} 出站管理（outbound）
-${GREEN}9.${PLAIN} 分流规则管理（split）
-${GREEN}10.${PLAIN} 反向代理管理（reverse）
+${GREEN}4.${PLAIN} 查询服务状态
+${GREEN}5.${PLAIN} 添加节点
+${GREEN}6.${PLAIN} 校验配置/重启服务
+${GREEN}7.${PLAIN} 出站管理（outbound）
+${GREEN}8.${PLAIN} 分流规则管理（split）
+${GREEN}9.${PLAIN} 反向代理管理（reverse）
 ${GREEN}0.${PLAIN} 退出脚本
 ----------------------
 xrayls 服务状态: ${xrayls_server_status_text}
 ----------------------"
 
-    read -p "请输入选项 [0-10]: " choice
+    read -p "请输入选项 [0-9]: " choice
 
     case "${choice}" in
         0) clear; exit 0 ;;
         1) run_xray_install ;;
         2) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/uninstall_xray.sh) ;;
         3) show_xray_configs ;;
-        4) XRevise ;;  # 示例配置修改
-        5) systemctl status xrayls --no-pager ;;
-        6) add_node_menu ;;
-        7) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/verify.sh) ;;
-        8) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/outbound.sh) ;;
-        9) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/split.sh) ;;
-        10) reverse_menu ;;
+        4) systemctl status xrayls --no-pager ;;
+        5) add_node_menu ;;
+        6) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/verify.sh) ;;
+        7) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/outbound.sh) ;;
+        8) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/split.sh) ;;
+        9) reverse_menu ;;
 
         *) echo -e "${RED}无效的选项 ${choice}${PLAIN}" ;;
     esac
@@ -213,24 +211,6 @@ ${GREEN}0.${PLAIN} 返回主菜单
     return
 }
 
-
-XRevise() {
-bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/XRevise.sh)
-load_env
-if [ "$WEB_CHOICE" = "1" ] || [ "$WEB_CHOICE" = "3" ]; then
-    
-    
-    bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/nconf.sh)
-elif [ "$WEB_CHOICE" = "2" ]; then
-    
-   
-
-    bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/cconf.sh)
-fi
-systemctl restart xrayls.service
-systemctl status xrayls.service 
-
-}
 # 主程序循环
 while true; do
     show_menu
