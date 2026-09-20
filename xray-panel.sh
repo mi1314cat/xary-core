@@ -152,15 +152,16 @@ ${GREEN}5.${PLAIN} 添加 HTTP 节点（无加密）
 ${GREEN}6.${PLAIN} 添加 VLESS-xHTTP TLS 节点
 ${GREEN}7.${PLAIN} 添加 Reality 节点（vision + ML-KEM-768，最高配置）
 ${GREEN}8.${PLAIN} 添加 Shadowsocks-2022 节点（aes-256-gcm，最高配置）
+${GREEN}9.${PLAIN} 添加 Trojan 节点（Reality 安全层，最高配置）
 
 ---------------------- Argo 节点 ----------------------
-${GREEN}9.${PLAIN} 添加 固定 Argo 节点
-${GREEN}10.${PLAIN} 添加 临时 Argo 节点
+${GREEN}10.${PLAIN} 添加 固定 Argo 节点
+${GREEN}11.${PLAIN} 添加 临时 Argo 节点
 
 ${GREEN}0.${PLAIN} 返回主菜单
 ----------------------"
 
-    read -p "请输入选项 [0-10]: " nchoice
+    read -p "请输入选项 [0-11]: " nchoice
 
     case "${nchoice}" in
         0) return ;;
@@ -206,11 +207,16 @@ ${GREEN}0.${PLAIN} 返回主菜单
             ;;
 
         9)
-            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/GDargo.sh)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/Trojan.sh)
             systemctl restart xrayls.service
             ;;
 
         10)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/GDargo.sh)
+            systemctl restart xrayls.service
+            ;;
+
+        11)
             bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/lsargo.sh)
             systemctl restart xrayls.service
             ;;
