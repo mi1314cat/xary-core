@@ -242,8 +242,83 @@ add_config() {
     yn=$(clean_input "$yn")
     [[ "$yn" == "1" ]] && network="tcp"
 
+    # ---- 安全层选配（AnyReality 组合）：默认裸 SS2022（兼容性最优）；可选套 Reality ----
+    # 说明：SS2022+REALITY 是 X 内核原生支持的组合（协议层×传输层×安全层 解耦），
+    #       anti-identification 显著强于裸 SS（未授权探针拿到的是真网站证书）；
+    #       实测 RN↔CC 双端 26.3.27 组合稳定运行。mihomo 的 ss 出站不支持 Reality，
+    #       套 Reality 时请使用 Xha 内核客户端（v2rayN / sing-box 等同样支持）。
+    local security="none"
+    echo >&2
+    echo "安全层选配：默认为裸 SS2022（所有客户端兼容）。" >&2
+    echo "  回车 = 裸 SS2022（推荐给需要 mihomo/ssr 等广泛兼容的场景）" >&2
+    echo "  1) 套 Reality 伪装（AnyReality：抗主动探测最强，需用支持Reality的客户端）" >&2
+    printf "选择 (默认回车=裸 SS2022): " >&2
+    read yn
+    yn=$(clean_input "$yn")
+    if [[ "$yn" == "1" ]]; then
+        security="reality"
+        # 伪装域名 / 密钥复用专职维护脚本（与 Reality.sh 完全同一套）
+        source <(curl -fsSL "https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/A/update_env.sh")
+        source <(curl -fsSL "https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/A/load_env.sh")
+        update_env "/root/catmi/catmi.env" mode xray
+        print_info "正在检测/更新 Reality 伪装域名（domains.sh）..."
+        bash <(curl -fsSL https://github.com/mi1314cat/One-click-script/raw/refs/heads/main/domains.sh) \
+            || { print_error "domains.sh 执行失败"; return 1; }
+        print_info "正在生成 Reality 密钥（conf/XRevise.sh）..."
+        bash <(curl -fsSL https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/XRevise.sh) \
+            || { print_error "XRevise.sh 执行失败"; return 1; }
+        load_env "$INSTALL_DIR/install_info.env" || return 1
+        load_env "/root/catmi/catmi.env" || return 1
+        local v
+        for v in PRIVATE_KEY PUBLIC_KEY short_id dest_server PUBLIC_IP link_ip; do
+            [[ -n "${!v}" ]] || { print_error "缺少必要变量：$v（Reality 层无法生成）"; return 1; }
+        done
+        printf "伪装域名 (回车使用 domains.sh 优选的 %s): " "$dest_server" >&2
+        read dest
+        DEST_R=$(clean_input "$dest")
+        [[ -z "$DEST_R" ]] && DEST_R="$dest_server"
+        R_TARGET="$DEST_R:443"
+        R_PK="$PUBLIC_KEY"
+        R_PRIV="$PRIVATE_KEY"
+        R_SID="$short_id"
+    fi
+
     next=$(get_next_index)
     tag_name="SS2022-${next}"
+
+    # ---- 按安全层生成模板片段 ----
+    local STREAM_BLOCK="" CL_STREAM="" YAML_NOTE=""
+    if [[ "$security" == "reality" ]]; then
+        read -r -d '' STREAM_BLOCK <<RB
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "target": "$R_TARGET",
+          "serverNames": ["$DEST_R"],
+          "privateKey": "$R_PRIV",
+          "shortIds": ["$R_SID"],
+          "maxTimeDiff": 40000
+        }
+      },
+RB
+        read -r -d '' CL_STREAM <<RC
+    "streamSettings": {
+      "network": "tcp",
+      "security": "reality",
+      "realitySettings": {
+        "serverName": "$DEST_R",
+        "fingerprint": "chrome",
+        "publicKey": "$R_PK",
+        "shortId": "$R_SID",
+        "spiderX": "/"
+      }
+    },
+RC
+        # 统一缩进：每行加 6 空格，去掉首行缩进（JSON 语法仍然合法，缩进仅美观）
+        STREAM_BLOCK=$(printf '%s\n' "$STREAM_BLOCK" | sed '/^[[:space:]]*$/d; s/^[[:space:]]*//' | sed 's/^/      /')
+        CL_STREAM=$(printf '%s\n' "$CL_STREAM" | sed '/^[[:space:]]*$/d; s/^[[:space:]]*//' | sed 's/^/    /')
+    fi
 
     file="$CONF_DIR/$PROTO-$next.json"
 
@@ -259,6 +334,7 @@ cat <<EOF > "$file"
         "password": "$PSK",
         "network": "$network"
       },
+$STREAM_BLOCK
       "sniffing": {
         "enabled": true,
         "destOverride": ["http", "tls"],
@@ -278,7 +354,7 @@ EOF
         return 1
     fi
 
-    # ---- X 内核客户端出站（vnet 结构）----
+    # ---- X 内核客户端出站（vnext 结构，Reality 安全层可选）----
     cat > "$OUT_DIR/$PROTO-$next.json" <<EOF
 {
   "protocol": "shadowsocks",
@@ -293,6 +369,7 @@ EOF
       }
     ]
   },
+$CL_STREAM
   "tag": "out-ss2022-$next"
 }
 EOF
@@ -302,9 +379,36 @@ EOF
     server_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
     userinfo=$(printf '%s' "$method:$PSK" | openssl base64 -A | tr -d '=' | tr '/+' '_-')
     echo "ss://${userinfo}@${server_ip}:${lport}#SS2022-${next}" > "$OUT_DIR/$PROTO-share-$next.txt"
+    if [[ "$security" == "reality" ]]; then
+        cat >> "$OUT_DIR/$PROTO-share-$next.txt" <<EOF
+# 注意：本节点套了 REALITY（ss+reality 组合，AnyReality），无标准 ss:// URI 语义。
+# 上面的 ss:// 链接仅包含方法+PSK+地址，需配合下方 streamSettings 使用（sing-box / v2rayN 可直接叠加 Reality）。
+# 服务端 Reality 参数：target=$R_TARGET  serverNames=$DEST_R  pbk=$R_PK  sid=$R_SID
+EOF
+    fi
 
     # ---- mihomo (Clash.Meta) YAML 客户端 ----
-    cat > "$OUT_DIR/$PROTO-client-$next.yaml" <<EOF
+    if [[ "$security" == "reality" ]]; then
+        cat > "$OUT_DIR/$PROTO-client-$next.yaml" <<EOF
+# mihomo (Clash.Meta) 客户端配置 —— SS2022-$next（REALITY 版）
+# 注意：mihomo 的 ss 出站不支持 Reality（AnyReality），此节点请使用 X 内核客户端：
+#   · Xray（xrayls）客户端：直接导入 out/$PROTO-$next.json
+#   · v2rayN（Xray 内核）/ sing-box：可直接叠加 ss+reality
+# 服务端与客户端共同参数：cipher=$method  PSK 见 out/$PROTO-$next.json
+# Reality 层参数：target=$R_TARGET  serverNames=$DEST_R  pbk=$R_PK  sid=$R_SID
+proxies:
+  - name: SS2022-$next
+    type: ss
+    server: $server_ip
+    port: $lport
+    cipher: $method
+    password: "$PSK"
+    udp: $([ "$network" = "tcp,udp" ] && echo true || echo false)
+    # ↑ 该 ss 节点缺少 Reality 传输，mihomo 无法连接本服务端碎片；
+    #   请使用上方 X 内核客户端文件（或后续加入 sing-box 客户端配置）。
+EOF
+    else
+        cat > "$OUT_DIR/$PROTO-client-$next.yaml" <<EOF
 # mihomo (Clash.Meta) 客户端配置 —— SS2022-$next
 # 方法与 PSK 与服务端完全一致；mihomo / sing-box / v2rayN 均支持 SS2022
 proxies:
@@ -316,9 +420,10 @@ proxies:
     password: "$PSK"
     udp: $([ "$network" = "tcp,udp" ] && echo true || echo false)
 EOF
+    fi
 
     print_ok "新增 Shadowsocks-2022 配置成功（最高配置）"
-    echo -e "编号: $next\n监听: 0.0.0.0:$lport\n方法: $method\nPSK: ${PSK:0:10}...(${PSK_BYTES} 字节)\nUDP: $([ "$network" = "tcp,udp" ] && echo '已开启 (session 化中继)' || echo '未开启')\nTag: $tag_name\n入站碎片: $file\n客户端文件(X内核): $OUT_DIR/$PROTO-$next.json\n客户端文件(M内核YAML): $OUT_DIR/$PROTO-client-$next.yaml\n分享链接: $OUT_DIR/$PROTO-share-$next.txt" >&2
+    echo -e "编号: $next\n监听: 0.0.0.0:$lport\n方法: $method\nPSK: ${PSK:0:10}...(${PSK_BYTES} 字节)\nUDP: $([ "$network" = "tcp,udp" ] && echo '已开启 (session 化中继)' || echo '未开启')\n安全层: $([ "$security" = "reality" ] && echo "REALITY（target=$R_TARGET sid=$R_SID）" || echo "裸 SS2022（全部客户端兼容）")\nTag: $tag_name\n入站碎片: $file\n客户端文件(X内核): $OUT_DIR/$PROTO-$next.json\n客户端文件(M内核YAML): $OUT_DIR/$PROTO-client-$next.yaml\n分享链接: $OUT_DIR/$PROTO-share-$next.txt" >&2
 }
 
 # ================================
