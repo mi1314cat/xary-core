@@ -150,15 +150,17 @@ ${GREEN}3.${PLAIN} 添加 SOCKS5 节点（无加密）
 ${GREEN}4.${PLAIN} 添加 VLESS-ECN 节点（tcp传输）
 ${GREEN}5.${PLAIN} 添加 HTTP 节点（无加密）
 ${GREEN}6.${PLAIN} 添加 VLESS-xHTTP TLS 节点
+${GREEN}7.${PLAIN} 添加 Reality 节点（vision + ML-KEM-768，最高配置）
+${GREEN}8.${PLAIN} 添加 Shadowsocks-2022 节点（aes-256-gcm，最高配置）
 
 ---------------------- Argo 节点 ----------------------
-${GREEN}7.${PLAIN} 添加 固定 Argo 节点
-${GREEN}8.${PLAIN} 添加 临时 Argo 节点
+${GREEN}9.${PLAIN} 添加 固定 Argo 节点
+${GREEN}10.${PLAIN} 添加 临时 Argo 节点
 
 ${GREEN}0.${PLAIN} 返回主菜单
 ----------------------"
 
-    read -p "请输入选项 [0-8]: " nchoice
+    read -p "请输入选项 [0-10]: " nchoice
 
     case "${nchoice}" in
         0) return ;;
@@ -194,11 +196,21 @@ ${GREEN}0.${PLAIN} 返回主菜单
             ;;
 
         7)
-            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/GDargo.sh)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/Reality.sh)
             systemctl restart xrayls.service
             ;;
 
         8)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/Shadowsocks.sh)
+            systemctl restart xrayls.service
+            ;;
+
+        9)
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/GDargo.sh)
+            systemctl restart xrayls.service
+            ;;
+
+        10)
             bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/lsargo.sh)
             systemctl restart xrayls.service
             ;;
