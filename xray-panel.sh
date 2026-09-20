@@ -24,37 +24,35 @@ show_menu() {
     echo -e "
 ${GREEN}xrayls 管理脚本${PLAIN}
 ----------------------
-${GREEN}1.${PLAIN} 安装 xray
+${GREEN}1.${PLAIN} 安装/更新 xray（自动检测版本：旧版升级、最新则跳过）
 ${GREEN}2.${PLAIN} 卸载 xray
-${GREEN}3.${PLAIN} 更新 xray
-${GREEN}4.${PLAIN} 查看客户端配置
-${GREEN}5.${PLAIN} 修改配置
-${GREEN}6.${PLAIN} 查询服务状态
-${GREEN}7.${PLAIN} 添加节点
-${GREEN}8.${PLAIN} 校验配置/重启服务
-${GREEN}9.${PLAIN} 出站管理（outbound）
-${GREEN}10.${PLAIN} 分流规则管理（split）
-${GREEN}11.${PLAIN} 反向代理管理（reverse）
+${GREEN}3.${PLAIN} 查看客户端配置
+${GREEN}4.${PLAIN} 修改配置
+${GREEN}5.${PLAIN} 查询服务状态
+${GREEN}6.${PLAIN} 添加节点
+${GREEN}7.${PLAIN} 校验配置/重启服务
+${GREEN}8.${PLAIN} 出站管理（outbound）
+${GREEN}9.${PLAIN} 分流规则管理（split）
+${GREEN}10.${PLAIN} 反向代理管理（reverse）
 ${GREEN}0.${PLAIN} 退出脚本
 ----------------------
 xrayls 服务状态: ${xrayls_server_status_text}
 ----------------------"
 
-    read -p "请输入选项 [0-11]: " choice
+    read -p "请输入选项 [0-10]: " choice
 
     case "${choice}" in
         0) clear; exit 0 ;;
-        1) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/VEVLRE.sh) ;;
+        1) run_xray_install ;;
         2) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/uninstall_xray.sh) ;;
-        3) upxray  ;;
-        4) show_xray_configs ;;
-        5) XRevise ;;  # 示例配置修改
-        6) systemctl status xrayls --no-pager ;;
-        7) add_node_menu ;;
-        8) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/verify.sh) ;;
-        9) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/outbound.sh) ;;
-        10) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/split.sh) ;;
-        11) reverse_menu ;;
+        3) show_xray_configs ;;
+        4) XRevise ;;  # 示例配置修改
+        5) systemctl status xrayls --no-pager ;;
+        6) add_node_menu ;;
+        7) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/verify.sh) ;;
+        8) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/outbound.sh) ;;
+        9) bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/split.sh) ;;
+        10) reverse_menu ;;
 
         *) echo -e "${RED}无效的选项 ${choice}${PLAIN}" ;;
     esac
@@ -101,17 +99,15 @@ load_env() {
         echo "env 文件不存在：$ENV_FILE"
     fi
 }
-upxray() {
-bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/unused/xray_install.sh)
-systemctl daemon-reload
-systemctl enable xrayls
-if ! systemctl restart xrayls; then
-    print_error "重启 xrayls 服务失败，请运行 'journalctl -u xrayls -b --no-pager' 获取详情"
-    systemctl status xrayls --no-pager || true
-    exit 1
-fi
+# 统一安装/更新入口：unused/xray_install.sh
+# 幂等：已安装且为最新版本时跳过下载；旧版本自动升级；并重建基础配置、验证并重启 xrayls
+XRAY_INSTALL_URL="https://github.com/mi1314cat/xary-core/raw/refs/heads/main/unused/xray_install.sh"
 
-
+run_xray_install() {
+    bash <(curl -fsSL "$XRAY_INSTALL_URL") || {
+        echo -e "${RED}xrayls 安装/更新失败，请查看上方错误信息${PLAIN}"
+        return 1
+    }
 }
 show_xray_configs() {
     local out_dir="/root/catmi/xray/out"
