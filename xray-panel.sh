@@ -158,10 +158,13 @@ ${GREEN}9.${PLAIN} 添加 Trojan 节点（Reality 安全层，最高配置）
 ${GREEN}10.${PLAIN} 添加 固定 Argo 节点
 ${GREEN}11.${PLAIN} 添加 临时 Argo 节点
 
+------------- Batch Generator -------------
+${GREEN}12.${PLAIN} 全协议一键生成（自动端口，统一校验，仅 reload 一次）
+
 ${GREEN}0.${PLAIN} 返回主菜单
 ----------------------"
 
-    read -p "请输入选项 [0-11]: " nchoice
+    read -p "请输入选项 [0-12]: " nchoice
 
     case "${nchoice}" in
         0) return ;;
@@ -219,6 +222,11 @@ ${GREEN}0.${PLAIN} 返回主菜单
         11)
             bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/lsargo.sh)
             systemctl restart xrayls.service
+            ;;
+
+        12)
+            # Batch Generator 收尾自带统一校验+一次重启, 这里不再 restart
+            bash <(curl -Ls https://github.com/mi1314cat/xary-core/raw/refs/heads/main/conf/batch.sh)
             ;;
 
         *)
