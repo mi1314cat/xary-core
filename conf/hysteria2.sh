@@ -33,7 +33,7 @@ print_title() {
 # 基础变量
 # ================================
 PROTO="hysteria"
-BASE_DIR="/root/catmi/xray"
+BASE_DIR="${XRAY_BASE_DIR:-/root/catmi/xray}"
 CONF_DIR="$BASE_DIR/conf"
 OUT_DIR="$BASE_DIR/out"
 mkdir -p "$CONF_DIR" "$OUT_DIR"
@@ -67,6 +67,12 @@ safe_read() {
     local default="$2"
     local input
 
+    if [[ "${X_BATCH:-0}" == "1" ]]; then
+        print_info "Batch 模式: ${prompt} = ${default}"
+        echo "$default"
+        return
+    fi
+
     printf "%s (默认: %s): " "$prompt" "$default" >&2
     read input
     input=$(clean_input "$input")
@@ -94,6 +100,39 @@ random_free_port() {
             return
         fi
     done
+}
+
+# ================================
+# Batch 模式（被全协议一键生成 conf/batch.sh 调用时 X_BATCH=1）
+#   - safe_read/safe_read_port 全部直接采用默认值，不等待交互
+#   - 默认端口改为批量连续分配：X_BATCH_PORT_START-END 内取第一个空闲端口
+#     （跳过本机已监听 + conf/ 碎片已用 + 本批已分配），游标持久化于
+#     $CONF_DIR/.batch-ports，保证同一批内多协议端口互不重复
+#   - 单协议（交互）模式行为完全不变
+# ================================
+X_BATCH_PORT_STATE="$CONF_DIR/.batch-ports"
+
+batch_conf_used_ports() {
+    jq -r '.inbounds[0].port // empty' "$CONF_DIR"/*.json 2>/dev/null | sort -un
+}
+
+batch_alloc_port() {
+    local start="${X_BATCH_PORT_START:-}" end="${X_BATCH_PORT_END:-}" p used
+    if [[ ! "$start" =~ ^[0-9]+$ || ! "$end" =~ ^[0-9]+$ ]]; then
+        random_free_port          # 无批量端口范围时回退原有随机逻辑
+        return
+    fi
+    used=$(batch_conf_used_ports)
+    for (( p=start; p<=end; p++ )); do
+        (( p >= 1 && p <= 65535 )) || continue
+        grep -qx "$p" "$X_BATCH_PORT_STATE" 2>/dev/null && continue
+        grep -qx "$p" <<<"$used" && continue
+        port_in_use "$p" && continue
+        echo "$p" >> "$X_BATCH_PORT_STATE"
+        echo "$p"
+        return
+    done
+    echo ""
 }
 
 # ================================
@@ -128,6 +167,17 @@ detect_listen_ip() {
 safe_read_port() {
     local default="$1"
     local input
+
+    if [[ "${X_BATCH:-0}" == "1" ]]; then
+        default=$(batch_alloc_port)
+        if [[ -z "$default" ]]; then
+            print_error "批量端口范围 $X_BATCH_PORT_START-$X_BATCH_PORT_END 已耗尽，回退随机空闲端口"
+            default=$(random_free_port)
+        fi
+        print_info "Batch 模式: 自动分配端口 = $default"
+        echo "$default"
+        return
+    fi
 
     while true; do
         printf "请输入本地监听端口 (默认: %s): " "$default" >&2
@@ -862,4 +912,12 @@ main_menu() {
     done
 }
 
-main_menu
+# 直跑入口: add = 由 Batch Generator (conf/batch.sh) 无交互调用 add_config;
+# 不带参数 = 原有交互菜单 (单协议行为不变)
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    if [[ "${1:-}" == "add" ]]; then
+        add_config
+    else
+        main_menu
+    fi
+fi
